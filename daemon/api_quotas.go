@@ -28,6 +28,7 @@ import (
 	"github.com/snapcore/snapd/jsonutil"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/servicestate"
+	"github.com/snapcore/snapd/overlord/servicestate/resources"
 	"github.com/snapcore/snapd/overlord/state"
 	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/snap/quota"
@@ -173,6 +174,11 @@ func postQuotaGroup(c *Command, r *http.Request, _ *auth.UserState) Response {
 
 	switch data.Action {
 	case "ensure":
+		// pack constraints into a resource limits struct
+		resourceLimits := resources.QuotaResources{
+			MemoryLimit: data.Constraints.Memory,
+		}
+
 		// check if the quota group exists first, if it does then we need to
 		// update it instead of create it
 		_, err := servicestate.GetQuota(st, data.GroupName)
@@ -181,7 +187,8 @@ func postQuotaGroup(c *Command, r *http.Request, _ *auth.UserState) Response {
 		}
 		if err == servicestate.ErrQuotaNotFound {
 			// then we need to create the quota
-			ts, err = servicestateCreateQuota(st, data.GroupName, data.Parent, data.Snaps, data.Constraints.Memory)
+
+			ts, err = servicestateCreateQuota(st, data.GroupName, data.Parent, data.Snaps, resourceLimits)
 			if err != nil {
 				return errToResponse(err, nil, BadRequest, "cannot create quota group: %v")
 			}
@@ -189,8 +196,8 @@ func postQuotaGroup(c *Command, r *http.Request, _ *auth.UserState) Response {
 		} else if err == nil {
 			// the quota group already exists, update it
 			updateOpts := servicestate.QuotaGroupUpdate{
-				AddSnaps:       data.Snaps,
-				NewMemoryLimit: data.Constraints.Memory,
+				AddSnaps:          data.Snaps,
+				NewResourceLimits: resourceLimits,
 			}
 			ts, err = servicestateUpdateQuota(st, data.GroupName, updateOpts)
 			if err != nil {
