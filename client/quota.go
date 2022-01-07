@@ -44,26 +44,32 @@ type QuotaGroupResult struct {
 	Current     *QuotaValues `json:"current,omitempty"`
 }
 
+type QuotaCpuValues struct {
+	Count       int   `json:"count,omitempty"`
+	Percentage  int   `json:"percentage,omitempty"`
+	AllowedCpus []int `json:"allowed-cpus,omitempty"`
+}
+
 type QuotaValues struct {
-	Memory quantity.Size `json:"memory,omitempty"`
+	Memory  quantity.Size   `json:"memory,omitempty"`
+	Cpu     *QuotaCpuValues `json:"cpu,omitempty"`
+	Threads int             `json:"threads,omitempty"`
 }
 
 // EnsureQuota creates a quota group or updates an existing group.
 // The list of snaps can be empty.
-func (client *Client) EnsureQuota(groupName string, parent string, snaps []string, maxMemory quantity.Size) (changeID string, err error) {
+func (client *Client) EnsureQuota(groupName string, parent string, snaps []string, constraints *QuotaValues) (changeID string, err error) {
 	if groupName == "" {
 		return "", fmt.Errorf("cannot create or update quota group without a name")
 	}
 	// TODO: use naming.ValidateQuotaGroup()
 
 	data := &postQuotaData{
-		Action:    "ensure",
-		GroupName: groupName,
-		Parent:    parent,
-		Snaps:     snaps,
-		Constraints: &QuotaValues{
-			Memory: maxMemory,
-		},
+		Action:      "ensure",
+		GroupName:   groupName,
+		Parent:      parent,
+		Snaps:       snaps,
+		Constraints: constraints,
 	}
 
 	var body bytes.Buffer
