@@ -28,6 +28,7 @@ import (
 
 	// TODO: move this to snap/quantity? or similar
 	"github.com/snapcore/snapd/gadget/quantity"
+	"github.com/snapcore/snapd/overlord/servicestate/resources"
 	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/systemd"
@@ -73,10 +74,10 @@ type Group struct {
 }
 
 // NewGroup creates a new top quota group with the given name and memory limit.
-func NewGroup(name string, memLimit quantity.Size) (*Group, error) {
+func NewGroup(name string, resourceLimits resources.QuotaResources) (*Group, error) {
 	grp := &Group{
 		Name:        name,
-		MemoryLimit: memLimit,
+		MemoryLimit: resourceLimits.MemoryLimit,
 	}
 
 	if err := grp.validate(); err != nil {
@@ -152,12 +153,14 @@ func (grp *Group) validate() error {
 		return fmt.Errorf("group name %q reserved", grp.Name)
 	}
 
-	if grp.MemoryLimit == 0 {
-		return fmt.Errorf("group memory limit must be non-zero")
+	// validate the resource limits for the group
+	limits := resources.QuotaResources{
+		MemoryLimit: grp.MemoryLimit,
 	}
 
-	// TODO: probably there is a minimum amount of bytes here that is
-	// technically usable/enforcable, should we check that too?
+	if err := limits.ValidateLimits(); err != nil {
+		return err
+	}
 
 	if grp.ParentGroup != "" && grp.Name == grp.ParentGroup {
 		return fmt.Errorf("group has circular parent reference to itself")
@@ -194,12 +197,12 @@ func (grp *Group) validate() error {
 }
 
 // NewSubGroup creates a new sub group under the current group.
-func (grp *Group) NewSubGroup(name string, memLimit quantity.Size) (*Group, error) {
+func (grp *Group) NewSubGroup(name string, resourceLimits resources.QuotaResources) (*Group, error) {
 	// TODO: implement a maximum sub-group depth
 
 	subGrp := &Group{
 		Name:        name,
-		MemoryLimit: memLimit,
+		MemoryLimit: resourceLimits.MemoryLimit,
 		ParentGroup: grp.Name,
 		parentGroup: grp,
 	}
