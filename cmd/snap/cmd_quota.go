@@ -21,7 +21,9 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jessevdk/go-flags"
@@ -29,6 +31,7 @@ import (
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/gadget/quantity"
 	"github.com/snapcore/snapd/i18n"
+	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/strutil"
 )
 
@@ -100,6 +103,9 @@ type cmdSetQuota struct {
 	waitMixin
 
 	MemoryMax  string `long:"memory" optional:"true"`
+	CpuMax     string `long:"cpu" optional:"true"`
+	CpuSet     string `long:"cpu-set" optional:"true"` // Requires cgroupsv2
+	ThreadMax  string `long:"thread" optional:"true"`
 	Parent     string `long:"parent" optional:"true"`
 	Positional struct {
 		GroupName string              `positional-arg-name:"<group-name>" required:"true"`
@@ -107,12 +113,106 @@ type cmdSetQuota struct {
 	} `positional-args:"yes"`
 }
 
-func (x *cmdSetQuota) Execute(args []string) (err error) {
-	var maxMemory string
-	switch {
-	case x.MemoryMax != "":
-		maxMemory = x.MemoryMax
+func hasQuotaSet(maxMemory string, cpuMax string, cpuSet string, threadMax string) bool {
+	if maxMemory != "" || cpuMax != "" || cpuSet != "" || threadMax != "" {
+		return true
 	}
+	return false
+}
+
+func parseCpuQuota(cpuMax string) (int, int, error) {
+	r := regexp.MustCompile(`([0-9]+x)?([0-9]+)%`)
+
+	match := r.FindStringSubmatch(cpuMax)
+	if match == nil {
+		return 0, 0, fmt.Errorf("invalid cpu quota format specified for --cpu")
+	}
+
+	// Detect whether format was NxM% or M%
+	if len(match) == 2 {
+		percentage, err := strconv.Atoi(match[1])
+		if err != nil || percentage == 0 {
+			return 0, 0, fmt.Errorf("invalid cpu quota value specified for --cpu")
+		}
+		return 0, percentage, nil
+	} else {
+		count, err := strconv.Atoi(match[1][:len(match[1])-1])
+		if err != nil || count == 0 {
+			return 0, 0, fmt.Errorf("invalid left hand value specified for --cpu")
+		}
+		percentage, err := strconv.Atoi(match[2])
+		if err != nil || percentage == 0 {
+			return 0, 0, fmt.Errorf("invalid right hand value specified for --cpu")
+		}
+		return count, percentage, nil
+	}
+}
+
+func parseQuotas(maxMemory string, cpuMax string, cpuSet string, threadMax string) (*client.QuotaValues, error) {
+	var mem int64
+	var cpuCount int
+	var cpuPercentage int
+	var allowedCpus []int
+	var thread int
+
+	if maxMemory != "" {
+		value, err := strutil.ParseByteSize(maxMemory)
+		if err != nil {
+			return nil, err
+		}
+		mem = value
+	}
+
+	if cpuMax != "" {
+		countValue, percentageValue, err := parseCpuQuota(cpuMax)
+		if err != nil {
+			return nil, err
+		}
+		cpuCount = countValue
+		cpuPercentage = percentageValue
+	}
+
+	if cpuSet != "" {
+		cgv, err := cgroup.Version()
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine cgroup version for parameter --cpu-set: %v", err)
+		}
+		if cgv < 2 {
+			return nil, fmt.Errorf("cannot use --cpu-set with cgroup version %d", cgv)
+		}
+
+		cpuTokens := strings.Split(cpuSet, ",")
+		for i, cpuToken := range cpuTokens {
+			cpu, err := strconv.Atoi(cpuToken)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value specified for --cpu-set at position %d", i)
+			}
+			allowedCpus = append(allowedCpus, cpu)
+		}
+	}
+
+	if threadMax != "" {
+		value, err := strconv.Atoi(threadMax)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value specified for --thread")
+		}
+		thread = value
+	}
+
+	return &client.QuotaValues{
+		Memory: quantity.Size(mem),
+		Cpu: &client.QuotaCpuValues{
+			Count:       cpuCount,
+			Percentage:  cpuPercentage,
+			AllowedCpus: allowedCpus,
+		},
+		Threads: thread,
+	}, nil
+}
+
+func (x *cmdSetQuota) Execute(args []string) (err error) {
+
+	quotaProvided := hasQuotaSet(x.MemoryMax, x.CpuMax, x.CpuSet, x.ThreadMax)
 
 	names := installedSnapNames(x.Positional.Snaps)
 
@@ -125,7 +225,7 @@ func (x *cmdSetQuota) Execute(args []string) (err error) {
 	var chgID string
 
 	switch {
-	case maxMemory == "" && x.Parent == "" && len(x.Positional.Snaps) == 0:
+	case !quotaProvided && x.Parent == "" && len(x.Positional.Snaps) == 0:
 		// no snaps were specified, no memory limit was specified, and no parent
 		// was specified, so just the group name was provided - this is not
 		// supported since there is nothing to change/create
@@ -133,11 +233,11 @@ func (x *cmdSetQuota) Execute(args []string) (err error) {
 		if groupExists {
 			return fmt.Errorf("no options set to change quota group")
 		}
-		return fmt.Errorf("cannot create quota group without memory limit")
+		return fmt.Errorf("cannot create quota group without any quotas")
 
-	case maxMemory == "" && x.Parent != "" && len(x.Positional.Snaps) == 0:
+	case !quotaProvided && x.Parent != "" && len(x.Positional.Snaps) == 0:
 		// this is either trying to create a new group with a parent and forgot
-		// to specify the memory limit for the new group, or the user is trying
+		// to specify the limits for the new group, or the user is trying
 		// to re-parent a group, i.e. move it from the current parent to a
 		// different one, which is currently unsupported
 
@@ -149,12 +249,11 @@ func (x *cmdSetQuota) Execute(args []string) (err error) {
 		}
 		return fmt.Errorf("cannot create quota group without memory limit")
 
-	case maxMemory != "":
-		// we have a memory limit to set for this group, so specify that along
+	case quotaProvided:
+		// we have limits to set for this group, so specify that along
 		// with whatever snaps may have been provided and whatever parent may
 		// have been specified
-
-		mem, err := strutil.ParseByteSize(maxMemory)
+		quotaValues, err := parseQuotas(x.MemoryMax, x.CpuMax, x.CpuSet, x.ThreadMax)
 		if err != nil {
 			return err
 		}
@@ -164,12 +263,12 @@ func (x *cmdSetQuota) Execute(args []string) (err error) {
 		// orphan a sub-group to no longer have a parent, but currently it just
 		// means leave the group with whatever parent it has, or if it doesn't
 		// currently exist, create the group without a parent group
-		chgID, err = x.client.EnsureQuota(x.Positional.GroupName, x.Parent, names, quantity.Size(mem))
+		chgID, err = x.client.EnsureQuota(x.Positional.GroupName, x.Parent, names, quotaValues)
 		if err != nil {
 			return err
 		}
 	case len(x.Positional.Snaps) != 0:
-		// there are snaps specified for this group but no memory limit, so the
+		// there are snaps specified for this group but no limits, so the
 		// group must already exist and we must be adding the specified snaps to
 		// the group
 
@@ -178,7 +277,7 @@ func (x *cmdSetQuota) Execute(args []string) (err error) {
 		// currently support that, so currently all snaps specified here are
 		// just added to the group
 
-		chgID, err = x.client.EnsureQuota(x.Positional.GroupName, x.Parent, names, 0)
+		chgID, err = x.client.EnsureQuota(x.Positional.GroupName, x.Parent, names, nil)
 		if err != nil {
 			return err
 		}
@@ -226,23 +325,44 @@ func (x *cmdQuota) Execute(args []string) (err error) {
 	fmt.Fprintf(w, "constraints:\n")
 
 	// Constraints should always be non-nil, since a quota group always needs to
-	// have a memory limit
+	// have atleast one limit
 	if group.Constraints == nil {
 		return fmt.Errorf("internal error: constraints is missing from daemon response")
 	}
-	val := strings.TrimSpace(fmtSize(int64(group.Constraints.Memory)))
-	fmt.Fprintf(w, "  memory:\t%s\n", val)
 
-	fmt.Fprintf(w, "current:\n")
-	if group.Current == nil {
-		// current however may be missing if there is no memory usage
-		val = "0B"
-	} else {
-		// use the value from the response
-		val = strings.TrimSpace(fmtSize(int64(group.Current.Memory)))
+	printIntConstraint := func(name string, current int, constraint int) {
+		fmt.Fprintf(w, "  %s:\t%d\n", name, constraint)
+		fmt.Fprintf(w, "current:\n")
+		fmt.Fprintf(w, "  %s:\t%d\n", name, current)
 	}
 
+	printArrayConstraint := func(name string, constraints []int) {
+		constraintStr := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(constraints)), ","), "[]")
+		fmt.Fprintf(w, "  %s:\t%s\n", name, constraintStr)
+		fmt.Fprintf(w, "current:\n")
+		fmt.Fprintf(w, "  %s:\t%s\n", name, constraintStr)
+	}
+
+	var memoryUsage string = "0B"
+	if group.Current != nil {
+		memoryUsage = strings.TrimSpace(fmtSize(int64(group.Current.Memory)))
+	}
+	val := strings.TrimSpace(fmtSize(int64(group.Constraints.Memory)))
 	fmt.Fprintf(w, "  memory:\t%s\n", val)
+	fmt.Fprintf(w, "current:\n")
+	fmt.Fprintf(w, "  memory:\t%s\n", memoryUsage)
+
+	if group.Constraints.Cpu != nil {
+		printIntConstraint("  cpu-count", 0, group.Constraints.Cpu.Count)
+		printIntConstraint("  cpu-percentage", 0, group.Constraints.Cpu.Percentage)
+		printArrayConstraint("  cpu-set", group.Constraints.Cpu.AllowedCpus)
+	}
+
+	var currentThreads int
+	if group.Current != nil {
+		currentThreads = group.Current.Threads
+	}
+	printIntConstraint("threads", currentThreads, group.Constraints.Threads)
 
 	if len(group.Subgroups) > 0 {
 		fmt.Fprint(w, "subgroups:\n")
