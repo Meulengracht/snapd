@@ -76,9 +76,9 @@ type Group struct {
 // NewGroup creates a new top quota group with the given name and memory limit.
 func NewGroup(name string, resourceLimits resources.QuotaResources) (*Group, error) {
 	grp := &Group{
-		Name:        name,
-		MemoryLimit: resourceLimits.MemoryLimit,
+		Name: name,
 	}
+	grp.UpdateQuotaLimits(resourceLimits)
 
 	if err := grp.validate(); err != nil {
 		return nil, err
@@ -154,11 +154,8 @@ func (grp *Group) validate() error {
 	}
 
 	// validate the resource limits for the group
-	limits := resources.QuotaResources{
-		MemoryLimit: grp.MemoryLimit,
-	}
-
-	if err := limits.ValidateLimits(); err != nil {
+	limits := resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, 0)
+	if err := limits.Validate(); err != nil {
 		return err
 	}
 
@@ -202,16 +199,23 @@ func (grp *Group) NewSubGroup(name string, resourceLimits resources.QuotaResourc
 
 	subGrp := &Group{
 		Name:        name,
-		MemoryLimit: resourceLimits.MemoryLimit,
 		ParentGroup: grp.Name,
 		parentGroup: grp,
 	}
+	subGrp.UpdateQuotaLimits(resourceLimits)
 
 	// check early that the sub group name is not the same as that of the
 	// parent, this is fine in systemd world, but in snapd we want unique quota
 	// groups
 	if name == grp.Name {
 		return nil, fmt.Errorf("cannot use same name %q for sub group as parent group", name)
+	}
+
+	// With the new quotas we not support groups that have a mixture of snaps and
+	// subgroups, as this will cause issues with nesting. Groups/subgroups may now
+	// only consist of either snaps or subgroups.
+	if len(grp.Snaps) != 0 {
+		return nil, fmt.Errorf("cannot mix sub groups with snaps in the same group")
 	}
 
 	if err := subGrp.validate(); err != nil {
@@ -223,6 +227,14 @@ func (grp *Group) NewSubGroup(name string, resourceLimits resources.QuotaResourc
 	grp.SubGroups = append(grp.SubGroups, name)
 
 	return subGrp, nil
+}
+
+// UpdateQuotaLimits updates all the quota limits set for the group to the new limits
+// given. The limits must be validated prior to calling this function.
+func (grp *Group) UpdateQuotaLimits(resourceLimits resources.QuotaResources) {
+	if resourceLimits.Memory != nil {
+		grp.MemoryLimit = resourceLimits.Memory.MemoryLimit
+	}
 }
 
 // ResolveCrossReferences takes a set of deserialized groups and sets all
