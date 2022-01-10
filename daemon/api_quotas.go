@@ -68,6 +68,21 @@ var getQuotaMemUsage = func(grp *quota.Group) (quantity.Size, error) {
 	return grp.CurrentMemoryUsage()
 }
 
+func createQuotaValues(memoryLimit quantity.Size, cpuCount int, cpuPercentage int, allowedCpus []int, threadLimit int) *client.QuotaValues {
+	var quotaValues client.QuotaValues
+	quotaValues.Memory = memoryLimit
+	quotaValues.Threads = threadLimit
+
+	if cpuCount != 0 || cpuPercentage != 0 || len(allowedCpus) != 0 {
+		quotaValues.Cpu = &client.QuotaCpuValues{
+			Count:       cpuCount,
+			Percentage:  cpuPercentage,
+			AllowedCpus: allowedCpus,
+		}
+	}
+	return &quotaValues
+}
+
 // getQuotaGroups returns all quota groups sorted by name.
 func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 	st := c.d.overlord.State()
@@ -97,16 +112,12 @@ func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 		}
 
 		results[i] = client.QuotaGroupResult{
-			GroupName: group.Name,
-			Parent:    group.ParentGroup,
-			Subgroups: group.SubGroups,
-			Snaps:     group.Snaps,
-			Constraints: &client.QuotaValues{
-				Memory: group.MemoryLimit,
-			},
-			Current: &client.QuotaValues{
-				Memory: memoryUsage,
-			},
+			GroupName:   group.Name,
+			Parent:      group.ParentGroup,
+			Subgroups:   group.SubGroups,
+			Snaps:       group.Snaps,
+			Constraints: createQuotaValues(group.MemoryLimit, 0, 0, nil, 0),
+			Current:     createQuotaValues(memoryUsage, 0, 0, nil, 0),
 		}
 	}
 	return SyncResponse(results)
@@ -138,18 +149,38 @@ func getQuotaGroupInfo(c *Command, r *http.Request, _ *auth.UserState) Response 
 	}
 
 	res := client.QuotaGroupResult{
-		GroupName: group.Name,
-		Parent:    group.ParentGroup,
-		Snaps:     group.Snaps,
-		Subgroups: group.SubGroups,
-		Constraints: &client.QuotaValues{
-			Memory: group.MemoryLimit,
-		},
-		Current: &client.QuotaValues{
-			Memory: memoryUsage,
-		},
+		GroupName:   group.Name,
+		Parent:      group.ParentGroup,
+		Snaps:       group.Snaps,
+		Subgroups:   group.SubGroups,
+		Constraints: createQuotaValues(group.MemoryLimit, 0, 0, nil, 0),
+		Current:     createQuotaValues(memoryUsage, 0, 0, nil, 0),
 	}
 	return SyncResponse(res)
+}
+
+func quotaValuesToResources(values client.QuotaValues) resources.QuotaResources {
+	var quotaResources resources.QuotaResources
+	if values.Memory != 0 {
+		quotaResources.Memory = &resources.QuotaResourceMemory{
+			MemoryLimit: values.Memory,
+		}
+	}
+
+	if values.Cpu != nil {
+		quotaResources.Cpu = &resources.QuotaResourceCpu{
+			Count:       values.Cpu.Count,
+			Percentage:  values.Cpu.Percentage,
+			AllowedCpus: values.Cpu.AllowedCpus,
+		}
+	}
+
+	if values.Threads != 0 {
+		quotaResources.Thread = &resources.QuotaResourceThreads{
+			ThreadLimit: values.Threads,
+		}
+	}
+	return quotaResources
 }
 
 // postQuotaGroup creates quota resource group or updates an existing group.
@@ -175,9 +206,7 @@ func postQuotaGroup(c *Command, r *http.Request, _ *auth.UserState) Response {
 	switch data.Action {
 	case "ensure":
 		// pack constraints into a resource limits struct
-		resourceLimits := resources.QuotaResources{
-			MemoryLimit: data.Constraints.Memory,
-		}
+		resourceLimits := quotaValuesToResources(data.Constraints)
 
 		// check if the quota group exists first, if it does then we need to
 		// update it instead of create it
