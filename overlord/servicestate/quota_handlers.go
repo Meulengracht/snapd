@@ -251,7 +251,7 @@ func quotaCreate(st *state.State, action QuotaControlAction, allGrps map[string]
 	}
 
 	// make sure the resource limits for the group are valid
-	if err := action.ResourceLimits.ValidateLimits(); err != nil {
+	if err := action.ResourceLimits.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("limits for group %q could not be validated: %v", action.QuotaName, err)
 	}
 
@@ -280,7 +280,7 @@ func quotaRemove(st *state.State, action QuotaControlAction, allGrps map[string]
 		return nil, nil, fmt.Errorf("internal error, AddSnaps option cannot be used with remove action")
 	}
 
-	if action.ResourceLimits.MemoryLimit != 0 {
+	if action.ResourceLimits.Memory != nil {
 		return nil, nil, fmt.Errorf("internal error, MemoryLimit option cannot be used with remove action")
 	}
 
@@ -335,19 +335,11 @@ func quotaRemove(st *state.State, action QuotaControlAction, allGrps map[string]
 }
 
 func quotaUpdateGroupLimits(grp *quota.Group, limits resources.QuotaResources) error {
-
-	// if the memory limit is not zero then change it too
-	if limits.MemoryLimit != 0 {
-		// we disallow decreasing the memory limit because it is difficult to do
-		// so correctly with the current state of our code in
-		// EnsureSnapServices, see comment in ensureSnapServicesForGroup for
-		// full details
-		if limits.MemoryLimit < grp.MemoryLimit {
-			return fmt.Errorf("cannot decrease memory limit of existing quota-group, remove and re-create it to decrease the limit")
-		}
-		grp.MemoryLimit = limits.MemoryLimit
+	currentQuotas := resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, 0)
+	if err := currentQuotas.Change(limits); err != nil {
+		return fmt.Errorf("cannot update limits for group %q: %v", grp.Name, err)
 	}
-
+	grp.UpdateQuotaLimits(currentQuotas)
 	return nil
 }
 
@@ -605,6 +597,16 @@ func ensureSnapServicesStateForGroup(st *state.State, grp *quota.Group, opts *en
 }
 
 func validateSnapForAddingToGroup(st *state.State, snaps []string, group string, allGrps map[string]*quota.Group) error {
+	grp, ok := allGrps[group]
+	if ok {
+		// With the new quotas we not support groups that have a mixture of snaps and
+		// subgroups, as this will cause issues with nesting. Groups/subgroups may now
+		// only consist of either snaps or subgroups.
+		if len(grp.SubGroups) != 0 {
+			return fmt.Errorf("cannot mix snaps and sub groups in the group %q", group)
+		}
+	}
+
 	for _, name := range snaps {
 		// validate that the snap exists
 		_, err := snapstate.CurrentInfo(st, name)

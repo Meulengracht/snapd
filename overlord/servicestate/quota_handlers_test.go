@@ -80,7 +80,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlCreate(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -96,7 +96,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlCreate(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo-group": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -127,7 +127,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlCreateRestartOK(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -136,7 +136,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlCreateRestartOK(c *C) {
 
 	expectedQuotaState := map[string]quotaGroupState{
 		"foo-group": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	}
@@ -185,7 +185,7 @@ func (s *quotaHandlersSuite) TestQuotaStateAlreadyUpdatedBehavior(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -258,7 +258,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdate(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -278,7 +278,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdate(c *C) {
 		{
 			Action:         "update",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 		},
 	}
 
@@ -293,7 +293,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdate(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo-group": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -325,7 +325,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdateRestartOK(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -345,7 +345,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdateRestartOK(c *C) {
 		{
 			Action:         "update",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 		},
 	}
 
@@ -353,7 +353,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdateRestartOK(c *C) {
 
 	expectedQuotaState := map[string]quotaGroupState{
 		"foo-group": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	}
@@ -407,7 +407,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlRemove(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -473,7 +473,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlRemoveRestartOK(c *C) {
 		{
 			Action:         "create",
 			QuotaName:      "foo-group",
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			AddSnaps:       []string{"test-snap"},
 		},
 	}
@@ -549,7 +549,7 @@ func (s *quotaHandlersSuite) TestQuotaCreatePreseeding(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -559,7 +559,7 @@ func (s *quotaHandlersSuite) TestQuotaCreatePreseeding(c *C) {
 	// check that the quota groups were created in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -586,7 +586,7 @@ func (s *quotaHandlersSuite) TestQuotaCreate(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -600,7 +600,7 @@ func (s *quotaHandlersSuite) TestQuotaCreate(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: 4 * quantity.SizeKiB},
+		ResourceLimits: resources.CreateQuotaResources(4*quantity.SizeKiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -613,7 +613,7 @@ func (s *quotaHandlersSuite) TestQuotaCreate(c *C) {
 	qc3 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: 4*quantity.SizeKiB + 1},
+		ResourceLimits: resources.CreateQuotaResources(4*quantity.SizeKiB+1, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 	err = s.callDoQuotaControl(&qc3)
@@ -622,7 +622,7 @@ func (s *quotaHandlersSuite) TestQuotaCreate(c *C) {
 	// check that the quota groups were created in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 4*quantity.SizeKiB + 1},
+			ResourceLimits: resources.CreateQuotaResources(4*quantity.SizeKiB+1, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -655,7 +655,7 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo-group",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 
 	err := s.callDoQuotaControl(&qc)
@@ -665,7 +665,7 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		ParentName:     "foo-non-real",
 		AddSnaps:       []string{"test-snap"},
 	}
@@ -678,7 +678,7 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 	qc3 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 		ParentName:     "foo-group",
 		AddSnaps:       []string{"test-snap"},
 	}
@@ -690,7 +690,7 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 	qc4 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		ParentName:     "foo-group",
 		AddSnaps:       []string{"test-snap"},
 	}
@@ -701,11 +701,11 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 	// check that the quota groups were created in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo-group": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			SubGroups:      []string{"foo2"},
 		},
 		"foo2": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 			ParentGroup:    "foo-group",
 		},
@@ -717,27 +717,28 @@ func (s *quotaHandlersSuite) TestDoCreateSubGroupQuota(c *C) {
 
 func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 	r := s.mockSystemctlCalls(c, join(
-		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		// CreateQuota for foo - no systemctl calls since there are no snaps
+		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
+		systemctlCallsForSliceStart("foo"),
 
-		// for CreateQuota foo2 - no systemctl calls since there are no snaps
+		// for CreateQuota foo2
+		systemctlCallsForSliceStart("foo/foo2"),
+		systemctlCallsForServiceRestart("test-snap"),
 
 		// for CreateQuota foo3 - no systemctl calls since there are no snaps
 
-		// RemoveQuota for foo2 - no daemon reload initially because
-		// we didn't modify anything, as there are no snaps in foo2 so we don't
-		// create that group on disk
-		// TODO: is this bit correct in practice? we are in effect calling
-		// systemctl stop <non-existing-slice> ?
+		// for RemoveQuota foo3
 		systemctlCallsForSliceStop("foo/foo3"),
 
-		systemctlCallsForSliceStop("foo/foo2"),
-
-		// RemoveQuota for foo
+		// RemoveQuota for foo2 - expect daemon reloads due to snap being in group
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
-		systemctlCallsForSliceStop("foo"),
+		systemctlCallsForSliceStop("foo/foo2"),
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 		systemctlCallsForServiceRestart("test-snap"),
+
+		// RemoveQuota for foo
+		systemctlCallsForSliceStop("foo"),
+		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 	))
 	defer r()
 
@@ -761,8 +762,7 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-		AddSnaps:       []string{"test-snap"},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 
 	err = s.callDoQuotaControl(&qc2)
@@ -772,8 +772,9 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 	qc3 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
 		ParentName:     "foo",
+		AddSnaps:       []string{"test-snap"},
 	}
 
 	err = s.callDoQuotaControl(&qc3)
@@ -782,7 +783,7 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 	qc4 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo3",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
 		ParentName:     "foo",
 	}
 
@@ -792,16 +793,16 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 	// check that the quota groups was created in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-			Snaps:          []string{"test-snap"},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			SubGroups:      []string{"foo2", "foo3"},
 		},
 		"foo2": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
+			Snaps:          []string{"test-snap"},
 			ParentGroup:    "foo",
 		},
 		"foo3": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
 			ParentGroup:    "foo",
 		},
 	})
@@ -827,12 +828,12 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-			Snaps:          []string{"test-snap"},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			SubGroups:      []string{"foo2"},
 		},
 		"foo2": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
+			Snaps:          []string{"test-snap"},
 			ParentGroup:    "foo",
 		},
 	})
@@ -848,8 +849,7 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-			Snaps:          []string{"test-snap"},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		},
 	})
 
@@ -866,6 +866,60 @@ func (s *quotaHandlersSuite) TestQuotaRemove(c *C) {
 
 	// foo is not mentioned in the service and doesn't exist
 	checkSvcAndSliceState(c, "test-snap.svc1", "foo", 0)
+}
+
+func (s *quotaHandlersSuite) TestQuotaSnapSubgroupUnmixable(c *C) {
+	r := s.mockSystemctlCalls(c, join(
+		// CreateQuota for foo
+		systemctlCallsForCreateQuota("foo", "test-snap"),
+	))
+	defer r()
+
+	st := s.state
+	st.Lock()
+	defer st.Unlock()
+
+	// setup the snap so it exists
+	snapstate.Set(s.state, "test-snap", s.testSnapState)
+	snaptest.MockSnapCurrent(c, testYaml, s.testSnapSideInfo)
+
+	// trying to remove a group that does not exist fails
+	qc := servicestate.QuotaControlAction{
+		Action:    "remove",
+		QuotaName: "not-exists",
+	}
+
+	err := s.callDoQuotaControl(&qc)
+	c.Assert(err, ErrorMatches, `cannot remove non-existent quota group "not-exists"`)
+
+	qc2 := servicestate.QuotaControlAction{
+		Action:         "create",
+		QuotaName:      "foo",
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
+		AddSnaps:       []string{"test-snap"},
+	}
+
+	err = s.callDoQuotaControl(&qc2)
+	c.Assert(err, IsNil)
+
+	// try to create a subgroup in a group that already has snaps, this call should fail
+	qc3 := servicestate.QuotaControlAction{
+		Action:         "create",
+		QuotaName:      "foo2",
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
+		ParentName:     "foo",
+	}
+
+	err = s.callDoQuotaControl(&qc3)
+	c.Assert(err, ErrorMatches, `cannot mix sub groups with snaps in the same group`)
+
+	// check that the quota groups was created in the state
+	checkQuotaState(c, st, map[string]quotaGroupState{
+		"foo": {
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
+			Snaps:          []string{"test-snap"},
+		},
+	})
 }
 
 func (s *quotaHandlersSuite) TestQuotaUpdateGroupNotExist(c *C) {
@@ -885,16 +939,21 @@ func (s *quotaHandlersSuite) TestQuotaUpdateGroupNotExist(c *C) {
 
 func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	r := s.mockSystemctlCalls(c, join(
-		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
-
-		// CreateQuota for foo2
-		systemctlCallsForCreateQuota("foo/foo2", "test-snap2"),
-
-		// UpdateQuota for foo2 - just the slice changes
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 
+		// CreateQuota for foo
+		systemctlCallsForSliceStart("foo"),
+
+		// CreateQuota for foo2
+		systemctlCallsForSliceStart("foo/foo2"),
+
+		// UpdateQuota for foo2 - just the slice changes
+		systemctlCallsForServiceRestart("test-snap"),
+		systemctlCallsForServiceRestart("test-snap2"),
+
 		// UpdateQuota for foo2 which fails - no systemctl calls
+
+		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 	))
 	defer r()
 
@@ -920,8 +979,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-		AddSnaps:       []string{"test-snap"},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 
 	err := s.callDoQuotaControl(&qc)
@@ -929,8 +987,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 
 	// ensure mem-limit is 1 GB
 	expFooGroupState := quotaGroupState{
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
-		Snaps:          []string{"test-snap"},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": expFooGroupState,
@@ -940,8 +997,8 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
-		AddSnaps:       []string{"test-snap2"},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
+		AddSnaps:       []string{"test-snap", "test-snap2"},
 		ParentName:     "foo",
 	}
 
@@ -951,8 +1008,8 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	expFooGroupState.SubGroups = []string{"foo2"}
 
 	expFoo2GroupState := quotaGroupState{
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB / 2},
-		Snaps:          []string{"test-snap2"},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB/2, 0, 0, nil, 0),
+		Snaps:          []string{"test-snap", "test-snap2"},
 		ParentGroup:    "foo",
 	}
 
@@ -966,13 +1023,13 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	qc3 := servicestate.QuotaControlAction{
 		Action:         "update",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 
 	err = s.callDoQuotaControl(&qc3)
 	c.Assert(err, IsNil)
 
-	expFoo2GroupState.ResourceLimits = resources.QuotaResources{MemoryLimit: quantity.SizeGiB}
+	expFoo2GroupState.ResourceLimits = resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0)
 	// and check that it got updated in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo":  expFooGroupState,
@@ -983,7 +1040,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 	qc4 := servicestate.QuotaControlAction{
 		Action:         "update",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 	}
 
 	err = s.callDoQuotaControl(&qc4)
@@ -1019,7 +1076,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -1029,7 +1086,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	// ensure mem-limit is 1 GB
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -1038,7 +1095,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "update",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 	}
 	err = s.callDoQuotaControl(&qc2)
 	c.Assert(err, IsNil)
@@ -1046,7 +1103,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	// and check that it got updated in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: 2 * quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(2*quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -1055,10 +1112,10 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	qc3 := servicestate.QuotaControlAction{
 		Action:         "update",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 	}
 	err = s.callDoQuotaControl(&qc3)
-	c.Assert(err, ErrorMatches, "cannot decrease memory limit of existing quota-group, remove and re-create it to decrease the limit")
+	c.Assert(err, ErrorMatches, "cannot update limits for group \"foo\": cannot decrease memory limit of existing quota-group, remove and re-create it to decrease the limit")
 }
 
 func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
@@ -1095,7 +1152,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -1104,7 +1161,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -1121,7 +1178,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
 	// and check that it got updated in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap", "test-snap2"},
 		},
 	})
@@ -1161,7 +1218,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 	qc := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap"},
 	}
 
@@ -1170,7 +1227,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 	})
@@ -1179,7 +1236,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 	qc2 := servicestate.QuotaControlAction{
 		Action:         "create",
 		QuotaName:      "foo2",
-		ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+		ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 		AddSnaps:       []string{"test-snap2"},
 	}
 
@@ -1189,11 +1246,11 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 	// verify state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 		"foo2": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap2"},
 		},
 	})
@@ -1211,11 +1268,11 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 	// nothing changed in the state
 	checkQuotaState(c, st, map[string]quotaGroupState{
 		"foo": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap"},
 		},
 		"foo2": {
-			ResourceLimits: resources.QuotaResources{MemoryLimit: quantity.SizeGiB},
+			ResourceLimits: resources.CreateQuotaResources(quantity.SizeGiB, 0, 0, nil, 0),
 			Snaps:          []string{"test-snap2"},
 		},
 	})

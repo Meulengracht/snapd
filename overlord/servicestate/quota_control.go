@@ -81,7 +81,7 @@ func CreateQuota(st *state.State, name string, parentName string, snaps []string
 	}
 
 	// validate the resource limits for the group
-	if err := resourceLimits.ValidateLimits(); err != nil {
+	if err := resourceLimits.Validate(); err != nil {
 		return nil, fmt.Errorf("limits for group %q could not be validated: %v", name, err)
 	}
 
@@ -196,15 +196,9 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) (*st
 		return nil, fmt.Errorf("group %q does not exist", name)
 	}
 
-	// check that the memory limit is not being decreased
-	if updateOpts.NewResourceLimits.MemoryLimit != 0 {
-		// we disallow decreasing the memory limit because it is difficult to do
-		// so correctly with the current state of our code in
-		// EnsureSnapServices, see comment in ensureSnapServicesForGroup for
-		// full details
-		if updateOpts.NewResourceLimits.MemoryLimit < grp.MemoryLimit {
-			return nil, fmt.Errorf("cannot decrease memory limit of existing quota-group, remove and re-create it to decrease the limit")
-		}
+	currentQuotas := resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, 0)
+	if err := currentQuotas.ValidateChange(updateOpts.NewResourceLimits); err != nil {
+		return nil, fmt.Errorf("cannot update group %q: %v", name, err)
 	}
 
 	// now ensure that all of the snaps mentioned in AddSnaps exist as snaps and

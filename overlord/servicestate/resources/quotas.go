@@ -25,17 +25,33 @@ import (
 	"github.com/snapcore/snapd/gadget/quantity"
 )
 
-type QuotaResources struct {
-	// MemoryLimit is the memory limit for the quota group being controlled,
-	// either the initial limit the group is created with for the "create"
-	// action, or if non-zero for the "update" the memory limit, then the new
-	// value to be set.
+// QuotaResourceMemory is the memory limit for the quota group being controlled,
+// either the initial limit the group is created with for the "create"
+// action, or if non-zero for the "update" the memory limit, then the new
+// value to be set.
+type QuotaResourceMemory struct {
 	MemoryLimit quantity.Size
 }
 
-func (qr *QuotaResources) ValidateLimits() error {
+type QuotaResourceCpu struct {
+	Count       int
+	Percentage  int
+	AllowedCpus []int
+}
+
+type QuotaResourceThreads struct {
+	ThreadLimit int
+}
+
+type QuotaResources struct {
+	Memory *QuotaResourceMemory
+	Cpu    *QuotaResourceCpu
+	Thread *QuotaResourceThreads
+}
+
+func (qr *QuotaResources) validateMemoryQuota() error {
 	// make sure the memory limit is not zero
-	if qr.MemoryLimit == 0 {
+	if qr.Memory.MemoryLimit == 0 {
 		return fmt.Errorf("cannot create quota group with no memory limit set")
 	}
 
@@ -43,9 +59,104 @@ func (qr *QuotaResources) ValidateLimits() error {
 	// to allow nesting, otherwise groups with less than 4K will trigger the
 	// oom killer to be invoked when a new group is added as a sub-group to the
 	// larger group.
-	if qr.MemoryLimit <= 4*quantity.SizeKiB {
-		return fmt.Errorf("memory limit %d is too small: size must be larger than 4KB", qr.MemoryLimit)
+	if qr.Memory.MemoryLimit <= 4*quantity.SizeKiB {
+		return fmt.Errorf("memory limit %d is too small: size must be larger than 4KB", qr.Memory.MemoryLimit)
+	}
+	return nil
+}
+
+func (qr *QuotaResources) validateCpuQuota() error {
+	// make sure the cpu count is not zero
+	if qr.Cpu.Count == 0 && qr.Cpu.Percentage == 0 {
+		return fmt.Errorf("cannot create quota group with a cpu quota of 0")
+	}
+	return nil
+}
+
+func (qr *QuotaResources) validateThreadQuota() error {
+	// make sure the thread count is not zero
+	if qr.Thread.ThreadLimit == 0 {
+		return fmt.Errorf("cannot create quota group with a thread count of 0")
+	}
+	return nil
+}
+
+func (qr *QuotaResources) Validate() error {
+	if qr.Memory == nil && qr.Cpu == nil && qr.Thread == nil {
+		return fmt.Errorf("quota group must have at least one resource quota set")
+	}
+
+	if qr.Memory != nil {
+		if err := qr.validateMemoryQuota(); err != nil {
+			return err
+		}
+	}
+
+	if qr.Cpu != nil {
+		if err := qr.validateCpuQuota(); err != nil {
+			return err
+		}
+	}
+
+	if qr.Thread != nil {
+		if err := qr.validateThreadQuota(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (qr *QuotaResources) ValidateChange(newLimits QuotaResources) error {
+
+	// check that the memory limit is not being decreased
+	if newLimits.Memory != nil && newLimits.Memory.MemoryLimit != 0 {
+		// we disallow decreasing the memory limit because it is difficult to do
+		// so correctly with the current state of our code in
+		// EnsureSnapServices, see comment in ensureSnapServicesForGroup for
+		// full details
+		if qr.Memory != nil && newLimits.Memory.MemoryLimit < qr.Memory.MemoryLimit {
+			return fmt.Errorf("cannot decrease memory limit of existing quota-group, remove and re-create it to decrease the limit")
+		}
 	}
 
 	return nil
+}
+
+func (qr *QuotaResources) Change(newLimits QuotaResources) error {
+	if err := qr.ValidateChange(newLimits); err != nil {
+		return err
+	}
+
+	if newLimits.Memory != nil {
+		qr.Memory = newLimits.Memory
+	}
+	if newLimits.Cpu != nil {
+		qr.Cpu = newLimits.Cpu
+	}
+	if newLimits.Thread != nil {
+		qr.Thread = newLimits.Thread
+	}
+	return nil
+}
+
+func CreateQuotaResources(memoryLimit quantity.Size, cpuCount int, cpuPercentage int, allowedCpus []int, threadLimit int) QuotaResources {
+	var quotaResources QuotaResources
+	if memoryLimit != 0 {
+		quotaResources.Memory = &QuotaResourceMemory{
+			MemoryLimit: memoryLimit,
+		}
+	}
+	if cpuCount != 0 || cpuPercentage != 0 || len(allowedCpus) != 0 {
+		quotaResources.Cpu = &QuotaResourceCpu{
+			Count:       cpuCount,
+			Percentage:  cpuPercentage,
+			AllowedCpus: allowedCpus,
+		}
+	}
+	if threadLimit != 0 {
+		quotaResources.Thread = &QuotaResourceThreads{
+			ThreadLimit: threadLimit,
+		}
+	}
+	return quotaResources
 }
