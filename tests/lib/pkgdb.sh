@@ -530,7 +530,7 @@ pkg_dependencies_ubuntu_classic(){
     echo "
         avahi-daemon
         cups
-        dbus-x11
+        dbus-user-session
         fontconfig
         gnome-keyring
         jq
@@ -553,7 +553,6 @@ pkg_dependencies_ubuntu_classic(){
             ;;
         ubuntu-16.04-64)
             echo "
-                dbus-user-session
                 evolution-data-server
                 fwupd
                 gccgo-6
@@ -681,6 +680,7 @@ pkg_dependencies_fedora_centos_common(){
         nmap-ncat
         nfs-utils
         PackageKit
+        polkit
         python3-yaml
         python3-dbus
         python3-gobject
