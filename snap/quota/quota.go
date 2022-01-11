@@ -228,6 +228,21 @@ func (grp *Group) validate() error {
 		memoryUsed := quantity.Size(0)
 		tasksUsed := 0
 		cpuQuotaUsed := 0
+
+		max := func(a, b int) int {
+			if a > b {
+				return a
+			}
+			return b
+		}
+
+		calculateCpuQuota := func(grp *Group) int {
+			if grp.CpuLimit == nil {
+				return 0
+			}
+			return max(grp.CpuLimit.Count, 1) * grp.CpuLimit.Percentage
+		}
+
 		for _, child := range grp.parentGroup.subGroups {
 			if child.Name == grp.Name {
 				continue
@@ -235,23 +250,21 @@ func (grp *Group) validate() error {
 
 			memoryUsed += child.MemoryLimit
 			tasksUsed += child.TaskLimit
-			if child.CpuLimit != nil {
-				cpuQuotaUsed += (child.CpuLimit.Count * child.CpuLimit.Percentage)
-			}
-		}
-
-		arrayContains := func(arr []int, val int) bool {
-			for _, v := range arr {
-				if v == val {
-					return true
-				}
-			}
-			return false
+			cpuQuotaUsed += calculateCpuQuota(child)
 		}
 
 		if grp.parentGroup.CpuLimit != nil && grp.CpuLimit != nil {
-			upperLimit := grp.parentGroup.CpuLimit.Count * grp.parentGroup.CpuLimit.Percentage
-			if cpuQuotaUsed+(grp.CpuLimit.Count*grp.CpuLimit.Percentage) > upperLimit {
+			arrayContains := func(arr []int, val int) bool {
+				for _, v := range arr {
+					if v == val {
+						return true
+					}
+				}
+				return false
+			}
+
+			upperLimit := calculateCpuQuota(grp.parentGroup)
+			if cpuQuotaUsed+calculateCpuQuota(grp) > upperLimit {
 				return fmt.Errorf("group %q would exceed its parent group's CPU limit", grp.Name)
 			}
 
