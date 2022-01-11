@@ -223,21 +223,61 @@ func (grp *Group) validate() error {
 
 	// Check that if this is a sub-group, then the parent group has enough space
 	// to accommodate this new group (we assume that other existing sub-groups
-	// in the parent group have already been validated). This is only valid if
-	// the parent group has a memory limit set.
-	if grp.parentGroup != nil && grp.parentGroup.MemoryLimit != 0 {
-		alreadyUsed := quantity.Size(0)
+	// in the parent group have already been validated).
+	if grp.parentGroup != nil {
+		memoryUsed := quantity.Size(0)
+		tasksUsed := 0
+		cpuQuotaUsed := 0
 		for _, child := range grp.parentGroup.subGroups {
 			if child.Name == grp.Name {
 				continue
 			}
-			alreadyUsed += child.MemoryLimit
+
+			memoryUsed += child.MemoryLimit
+			tasksUsed += child.TaskLimit
+			if child.CpuLimit != nil {
+				cpuQuotaUsed += (child.CpuLimit.Count * child.CpuLimit.Percentage)
+			}
 		}
-		// careful arithmetic here in case we somehow overflow the max size of
-		// quantity.Size
-		if grp.parentGroup.MemoryLimit-alreadyUsed < grp.MemoryLimit {
-			remaining := grp.parentGroup.MemoryLimit - alreadyUsed
-			return fmt.Errorf("sub-group memory limit of %s is too large to fit inside remaining quota space %s for parent group %s", grp.MemoryLimit.IECString(), remaining.IECString(), grp.parentGroup.Name)
+
+		arrayContains := func(arr []int, val int) bool {
+			for _, v := range arr {
+				if v == val {
+					return true
+				}
+			}
+			return false
+		}
+
+		if grp.parentGroup.CpuLimit != nil && grp.CpuLimit != nil {
+			upperLimit := grp.parentGroup.CpuLimit.Count * grp.parentGroup.CpuLimit.Percentage
+			if cpuQuotaUsed+(grp.CpuLimit.Count*grp.CpuLimit.Percentage) > upperLimit {
+				return fmt.Errorf("group %q would exceed its parent group's CPU limit", grp.Name)
+			}
+
+			if len(grp.parentGroup.CpuLimit.AllowedCpus) > 0 {
+				// check if the group's allowed cpus are a subset of the parent group's allowed cpus
+				for _, cpu := range grp.CpuLimit.AllowedCpus {
+					if !arrayContains(grp.parentGroup.CpuLimit.AllowedCpus, cpu) {
+						return fmt.Errorf("group %q has a CPU allowance that is not allowed by its parent group", grp.Name)
+					}
+				}
+			}
+		}
+
+		if grp.parentGroup.MemoryLimit != 0 {
+			// careful arithmetic here in case we somehow overflow the max size of
+			// quantity.Size
+			if grp.parentGroup.MemoryLimit-memoryUsed < grp.MemoryLimit {
+				remaining := grp.parentGroup.MemoryLimit - memoryUsed
+				return fmt.Errorf("sub-group memory limit of %s is too large to fit inside remaining quota space %s for parent group %s", grp.MemoryLimit.IECString(), remaining.IECString(), grp.parentGroup.Name)
+			}
+		}
+
+		if grp.parentGroup.TaskLimit != 0 {
+			if tasksUsed+grp.TaskLimit > grp.parentGroup.TaskLimit {
+				return fmt.Errorf("sub-group task limit of %d is too large to fit inside remaining task space %d for parent group %s", grp.TaskLimit, grp.parentGroup.TaskLimit-tasksUsed, grp.parentGroup.Name)
+			}
 		}
 	}
 
