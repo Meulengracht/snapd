@@ -24,7 +24,6 @@ import (
 	"sort"
 
 	"github.com/snapcore/snapd/client"
-	"github.com/snapcore/snapd/gadget/quantity"
 	"github.com/snapcore/snapd/jsonutil"
 	"github.com/snapcore/snapd/overlord/auth"
 	"github.com/snapcore/snapd/overlord/servicestate"
@@ -64,27 +63,37 @@ var (
 	servicestateRemoveQuota = servicestate.RemoveQuota
 )
 
-var getQuotaMemUsage = func(grp *quota.Group) (quantity.Size, error) {
-	return grp.CurrentMemoryUsage()
+var getQuotaUsage = func(grp *quota.Group) (*client.QuotaValues, error) {
+	var currentUsage client.QuotaValues
+
+	mem, err := grp.CurrentMemoryUsage()
+	if err != nil {
+		return nil, err
+	}
+	currentUsage.Memory = mem
+
+	threads, err := grp.CurrentTaskUsage()
+	if err != nil {
+		return nil, err
+	}
+	currentUsage.Threads = threads
+
+	return &currentUsage, nil
 }
 
-var getQuotaTaskUsage = func(grp *quota.Group) (int, error) {
-	return grp.CurrentTaskUsage()
-}
+func createQuotaValues(grp *quota.Group) *client.QuotaValues {
+	var constraints client.QuotaValues
+	constraints.Memory = grp.MemoryLimit
+	constraints.Threads = grp.TaskLimit
 
-func createQuotaValues(memoryLimit quantity.Size, cpuCount int, cpuPercentage int, allowedCpus []int, threadLimit int) *client.QuotaValues {
-	var quotaValues client.QuotaValues
-	quotaValues.Memory = memoryLimit
-	quotaValues.Threads = threadLimit
-
-	if cpuCount != 0 || cpuPercentage != 0 || len(allowedCpus) != 0 {
-		quotaValues.Cpu = &client.QuotaCpuValues{
-			Count:       cpuCount,
-			Percentage:  cpuPercentage,
-			AllowedCpus: allowedCpus,
+	if grp.CpuLimit != nil {
+		constraints.Cpu = &client.QuotaCpuValues{
+			Count:       grp.CpuLimit.Count,
+			Percentage:  grp.CpuLimit.Percentage,
+			AllowedCpus: grp.CpuLimit.AllowedCpus,
 		}
 	}
-	return &quotaValues
+	return &constraints
 }
 
 // getQuotaGroups returns all quota groups sorted by name.
@@ -110,34 +119,18 @@ func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 	for i, name := range names {
 		group := quotas[name]
 
-		var currentUsage client.QuotaValues
-		currentUsage.Memory, err = getQuotaMemUsage(group)
+		currentUsage, err := getQuotaUsage(group)
 		if err != nil {
 			return InternalError(err.Error())
 		}
 
-		currentUsage.Threads, err = getQuotaTaskUsage(group)
-		if err != nil {
-			return InternalError(err.Error())
-		}
-
-		var constraints client.QuotaValues
-		constraints.Memory = group.MemoryLimit
-		constraints.Threads = group.TaskLimit
-		if group.CpuLimit != nil {
-			constraints.Cpu = &client.QuotaCpuValues{
-				Count:       group.CpuLimit.Count,
-				Percentage:  group.CpuLimit.Percentage,
-				AllowedCpus: group.CpuLimit.AllowedCpus,
-			}
-		}
 		results[i] = client.QuotaGroupResult{
 			GroupName:   group.Name,
 			Parent:      group.ParentGroup,
 			Subgroups:   group.SubGroups,
 			Snaps:       group.Snaps,
-			Constraints: &constraints,
-			Current:     &currentUsage,
+			Constraints: createQuotaValues(group),
+			Current:     currentUsage,
 		}
 	}
 	return SyncResponse(results)
@@ -163,7 +156,7 @@ func getQuotaGroupInfo(c *Command, r *http.Request, _ *auth.UserState) Response 
 		return InternalError(err.Error())
 	}
 
-	memoryUsage, err := getQuotaMemUsage(group)
+	currentUsage, err := getQuotaUsage(group)
 	if err != nil {
 		return InternalError(err.Error())
 	}
@@ -173,8 +166,8 @@ func getQuotaGroupInfo(c *Command, r *http.Request, _ *auth.UserState) Response 
 		Parent:      group.ParentGroup,
 		Snaps:       group.Snaps,
 		Subgroups:   group.SubGroups,
-		Constraints: createQuotaValues(group.MemoryLimit, 0, 0, nil, 0),
-		Current:     createQuotaValues(memoryUsage, 0, 0, nil, 0),
+		Constraints: createQuotaValues(group),
+		Current:     currentUsage,
 	}
 	return SyncResponse(res)
 }
