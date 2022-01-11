@@ -34,6 +34,12 @@ import (
 	"github.com/snapcore/snapd/systemd"
 )
 
+type GroupQuotaCpu struct {
+	Count       int   `json:"count,omitempty"`
+	Percentage  int   `json:"percentage,omitempty"`
+	AllowedCpus []int `json:"allowed-cpus,omitempty"`
+}
+
 // Group is a quota group of snaps, services or sub-groups that are all subject
 // to specific resource quotas. The only quota resource types currently
 // supported is memory, but this can be expanded in the future.
@@ -60,6 +66,16 @@ type Group struct {
 	// ExhaustionBehavior. MemoryLimit is expressed in bytes.
 	MemoryLimit quantity.Size `json:"memory-limit,omitempty"`
 
+	// CpuLimit is the quotas for the cpu and consists of a couple of nubs.
+	// It is possible to control the percentage of the cpu available for the group
+	// and which cores (requires cgroupsv2) are allowed to be used.
+	CpuLimit *GroupQuotaCpu `json:"cpu-limit,omitempty"`
+
+	// TaskLimit is the limit of threads/processes that can be active at once in
+	// the group. Once the limit is reached, further forks() or clones() will be blocked
+	// for processes in the group.
+	TaskLimit int `json:"task-limit,omitempty"`
+
 	// ParentGroup is the the parent group that this group is a child of. If it
 	// is empty, then this is a "root" quota group.
 	ParentGroup string `json:"parent-group,omitempty"`
@@ -85,6 +101,15 @@ func NewGroup(name string, resourceLimits resources.QuotaResources) (*Group, err
 	}
 
 	return grp, nil
+}
+
+func (grp *Group) GetQuotaResources() resources.QuotaResources {
+	if grp.CpuLimit != nil {
+		return resources.CreateQuotaResources(
+			grp.MemoryLimit, grp.CpuLimit.Count, grp.CpuLimit.Percentage,
+			grp.CpuLimit.AllowedCpus, grp.TaskLimit)
+	}
+	return resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, grp.TaskLimit)
 }
 
 // CurrentMemoryUsage returns the current memory usage of the quota group. For
@@ -154,7 +179,7 @@ func (grp *Group) validate() error {
 	}
 
 	// validate the resource limits for the group
-	limits := resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, 0)
+	limits := grp.GetQuotaResources()
 	if err := limits.Validate(); err != nil {
 		return err
 	}
@@ -234,6 +259,16 @@ func (grp *Group) NewSubGroup(name string, resourceLimits resources.QuotaResourc
 func (grp *Group) UpdateQuotaLimits(resourceLimits resources.QuotaResources) {
 	if resourceLimits.Memory != nil {
 		grp.MemoryLimit = resourceLimits.Memory.MemoryLimit
+	}
+	if resourceLimits.Cpu != nil {
+		grp.CpuLimit = &GroupQuotaCpu{
+			Count:       resourceLimits.Cpu.Count,
+			Percentage:  resourceLimits.Cpu.Percentage,
+			AllowedCpus: resourceLimits.Cpu.AllowedCpus,
+		}
+	}
+	if resourceLimits.Thread != nil {
+		grp.TaskLimit = resourceLimits.Thread.ThreadLimit
 	}
 }
 
