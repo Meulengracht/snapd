@@ -21,7 +21,6 @@ package main_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -100,14 +99,27 @@ type fakeQuotaGroupPostHandlerOpts struct {
 	parentName string
 	snaps      []string
 	maxMemory  int64
+	maxTasks   int
+}
+
+type quotasEnsureBodyConstraintsCpu struct {
+	Count       int   `json:"count,omitempty"`
+	Percentage  int   `json:"percentage,omitempty"`
+	AllowedCpus []int `json:"allowed-cpus,omitempty"`
+}
+
+type quotasEnsureBodyConstraints struct {
+	Memory  int64                          `json:"memory,omitempty"`
+	Threads int                            `json:"threads,omitempty"`
+	Cpu     quotasEnsureBodyConstraintsCpu `json:"cpu,omitempty"`
 }
 
 type quotasEnsureBody struct {
-	Action      string                 `json:"action"`
-	GroupName   string                 `json:"group-name,omitempty"`
-	ParentName  string                 `json:"parent,omitempty"`
-	Snaps       []string               `json:"snaps,omitempty"`
-	Constraints map[string]interface{} `json:"constraints,omitempty"`
+	Action      string                      `json:"action"`
+	GroupName   string                      `json:"group-name,omitempty"`
+	ParentName  string                      `json:"parent,omitempty"`
+	Snaps       []string                    `json:"snaps,omitempty"`
+	Constraints quotasEnsureBodyConstraints `json:"constraints,omitempty"`
 }
 
 func makeFakeQuotaPostHandler(c *check.C, opts fakeQuotaGroupPostHandlerOpts) func(w http.ResponseWriter, r *http.Request) {
@@ -132,10 +144,13 @@ func makeFakeQuotaPostHandler(c *check.C, opts fakeQuotaGroupPostHandlerOpts) fu
 				GroupName:   opts.groupName,
 				ParentName:  opts.parentName,
 				Snaps:       opts.snaps,
-				Constraints: map[string]interface{}{},
+				Constraints: quotasEnsureBodyConstraints{},
 			}
 			if opts.maxMemory != 0 {
-				exp.Constraints["memory"] = json.Number(fmt.Sprintf("%d", opts.maxMemory))
+				exp.Constraints.Memory = opts.maxMemory
+			}
+			if opts.maxTasks != 0 {
+				exp.Constraints.Threads = opts.maxTasks
 			}
 
 			postJSON := quotasEnsureBody{}
@@ -178,6 +193,11 @@ func (s *quotaSuite) TestSetQuotaInvalidArgs(c *check.C) {
 		{[]string{"set-quota", "--memory=99B"}, "the required argument `<group-name>` was not provided"},
 		{[]string{"set-quota", "--memory=99", "foo"}, `cannot parse "99": need a number with a unit as input`},
 		{[]string{"set-quota", "--memory=888X", "foo"}, `cannot parse "888X\": try 'kB' or 'MB'`},
+		{[]string{"set-quota", "--cpu=0", "foo"}, `invalid cpu quota format specified for --cpu`},
+		{[]string{"set-quota", "--cpu=0x100", "foo"}, `invalid cpu quota format specified for --cpu`},
+		{[]string{"set-quota", "--cpu=200", "foo"}, `invalid cpu quota format specified for --cpu`},
+		{[]string{"set-quota", "--cpu=20D", "foo"}, `invalid cpu quota format specified for --cpu`},
+		{[]string{"set-quota", "--cpu=ASD", "foo"}, `invalid cpu quota format specified for --cpu`},
 		// remove-quota command
 		{[]string{"remove-quota"}, "the required argument `<group-name>` was not provided"},
 	} {
@@ -218,7 +238,8 @@ parent:  bar
 constraints:
   memory:  1000B
 current:
-  memory:  900B
+  memory:   900B
+  threads:  0
 subgroups:
   - subgrp1
 snaps:
@@ -248,7 +269,8 @@ name:  foo
 constraints:
   memory:  1000B
 current:
-  memory:  %dB
+  memory:   %dB
+  threads:  0
 `[1:]
 
 	rest, err := main.Parser(main.Client()).ParseArgs([]string{"quota", "foo"})
@@ -307,7 +329,7 @@ func (s *quotaSuite) TestSetQuotaGroupUpdateExistingUnhappy(c *check.C) {
 
 func (s *quotaSuite) TestSetQuotaGroupCreateNewUnhappy(c *check.C) {
 	const exists = false
-	s.testSetQuotaGroupUpdateExistingUnhappy(c, "cannot create quota group without memory limit", exists)
+	s.testSetQuotaGroupUpdateExistingUnhappy(c, "cannot create quota group without any quotas", exists)
 }
 
 func (s *quotaSuite) TestSetQuotaGroupCreateNewUnhappyWithParent(c *check.C) {

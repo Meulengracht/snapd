@@ -334,39 +334,26 @@ func (x *cmdQuota) Execute(args []string) (err error) {
 		return fmt.Errorf("internal error: constraints is missing from daemon response")
 	}
 
-	printIntConstraint := func(name string, current int, constraint int) {
-		fmt.Fprintf(w, "  %s:\t%d\n", name, constraint)
-		fmt.Fprintf(w, "current:\n")
-		fmt.Fprintf(w, "  %s:\t%d\n", name, current)
-	}
-
-	printArrayConstraint := func(name string, constraints []int) {
-		constraintStr := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(constraints)), ","), "[]")
-		fmt.Fprintf(w, "  %s:\t%s\n", name, constraintStr)
-		fmt.Fprintf(w, "current:\n")
-		fmt.Fprintf(w, "  %s:\t%s\n", name, constraintStr)
-	}
-
 	var memoryUsage string = "0B"
+	var currentThreads int = 0
 	if group.Current != nil {
 		memoryUsage = strings.TrimSpace(fmtSize(int64(group.Current.Memory)))
+		currentThreads = group.Current.Threads
 	}
 	val := strings.TrimSpace(fmtSize(int64(group.Constraints.Memory)))
 	fmt.Fprintf(w, "  memory:\t%s\n", val)
+	if group.Current != nil && group.Current.Cpu != nil {
+		fmt.Fprintf(w, "  cpu:\n")
+		fmt.Fprintf(w, "    count:\t%d\n", group.Current.Cpu.Count)
+		fmt.Fprintf(w, "    percentage:\t%d\n", group.Current.Cpu.Percentage)
+		if len(group.Current.Cpu.AllowedCpus) > 0 {
+			allowedCpus := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(group.Current.Cpu.AllowedCpus)), ","), "[]")
+			fmt.Fprintf(w, "    allowed-cpus:\t%s\n", allowedCpus)
+		}
+	}
 	fmt.Fprintf(w, "current:\n")
 	fmt.Fprintf(w, "  memory:\t%s\n", memoryUsage)
-
-	if group.Constraints.Cpu != nil {
-		printIntConstraint("  cpu-count", 0, group.Constraints.Cpu.Count)
-		printIntConstraint("  cpu-percentage", 0, group.Constraints.Cpu.Percentage)
-		printArrayConstraint("  cpu-set", group.Constraints.Cpu.AllowedCpus)
-	}
-
-	var currentThreads int
-	if group.Current != nil {
-		currentThreads = group.Current.Threads
-	}
-	printIntConstraint("threads", currentThreads, group.Constraints.Threads)
+	fmt.Fprintf(w, "  threads:\t%d\n", currentThreads)
 
 	if len(group.Subgroups) > 0 {
 		fmt.Fprint(w, "subgroups:\n")
