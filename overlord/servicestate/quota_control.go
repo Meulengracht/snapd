@@ -196,7 +196,7 @@ func UpdateQuota(st *state.State, name string, updateOpts QuotaGroupUpdate) (*st
 		return nil, fmt.Errorf("group %q does not exist", name)
 	}
 
-	currentQuotas := resources.CreateQuotaResources(grp.MemoryLimit, 0, 0, nil, 0)
+	currentQuotas := grp.GetQuotaResources()
 	if err := currentQuotas.ValidateChange(updateOpts.NewResourceLimits); err != nil {
 		return nil, fmt.Errorf("cannot update group %q: %v", name, err)
 	}
