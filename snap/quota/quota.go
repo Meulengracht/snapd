@@ -137,6 +137,31 @@ func (grp *Group) CurrentMemoryUsage() (quantity.Size, error) {
 	return mem, nil
 }
 
+// CurrentTaskUsage returns the current task (processes, threads) usage of the quota group.
+// For quota groups which do not yet have a backing systemd slice on the system (
+// i.e. quota groups without any snaps in them), the task usage is reported
+// as 0
+func (grp *Group) CurrentTaskUsage() (int, error) {
+	sysd := systemd.New(systemd.SystemMode, progress.Null)
+
+	// check if this group is actually active, it could not physically exist yet
+	// since it has no snaps in it
+	isActive, err := sysd.IsActive(grp.SliceFileName())
+	if err != nil {
+		return 0, err
+	}
+	if !isActive {
+		return 0, nil
+	}
+
+	count, err := sysd.CurrentTasksCount(grp.SliceFileName())
+	if err != nil {
+		return 0, err
+	}
+
+	return int(count), nil
+}
+
 // SliceFileName returns the name of the slice file that should be used for this
 // quota group. This name will include all of the group's parents in the name.
 // For example, a group named "bar" that is a child of the "foo" group will have
@@ -196,10 +221,11 @@ func (grp *Group) validate() error {
 		}
 	}
 
-	// check that if this is a sub-group, then the parent group has enough space
+	// Check that if this is a sub-group, then the parent group has enough space
 	// to accommodate this new group (we assume that other existing sub-groups
-	// in the parent group have already been validated)
-	if grp.parentGroup != nil {
+	// in the parent group have already been validated). This is only valid if
+	// the parent group has a memory limit set.
+	if grp.parentGroup != nil && grp.parentGroup.MemoryLimit != 0 {
 		alreadyUsed := quantity.Size(0)
 		for _, child := range grp.parentGroup.subGroups {
 			if child.Name == grp.Name {
