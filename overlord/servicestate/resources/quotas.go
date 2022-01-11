@@ -67,8 +67,8 @@ func (qr *QuotaResources) validateMemoryQuota() error {
 
 func (qr *QuotaResources) validateCpuQuota() error {
 	// make sure the cpu count is not zero
-	if qr.Cpu.Count == 0 && qr.Cpu.Percentage == 0 {
-		return fmt.Errorf("cannot create quota group with a cpu quota of 0")
+	if qr.Cpu.Count == 0 && qr.Cpu.Percentage == 0 && len(qr.Cpu.AllowedCpus) == 0 {
+		return fmt.Errorf("cannot create quota group with a cpu quota of 0 and allowed cpus of 0")
 	}
 	return nil
 }

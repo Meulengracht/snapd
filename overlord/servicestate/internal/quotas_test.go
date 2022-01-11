@@ -123,7 +123,7 @@ func (s *servicestateQuotasSuite) TestQuotas(c *C) {
 
 	_, err = internal.PatchQuotas(st, otherGrp2, otherGrp)
 	// either group can get checked first
-	c.Assert(err, ErrorMatches, `cannot update quotas "other-group", "other-group2": group "other-group2?" is invalid: group memory limit must be non-zero`)
+	c.Assert(err, ErrorMatches, `cannot update quotas "other-group", "other-group2": group "other-group2" is invalid: quota group must have at least one resource quota set`)
 }
 
 func (s *servicestateQuotasSuite) TestCreateQuotaInState(c *C) {
