@@ -74,7 +74,7 @@ func (s *apiQuotaSuite) SetUpTest(c *check.C) {
 }
 
 func mockQuotas(st *state.State, c *check.C) {
-	err := servicestatetest.MockQuotaInState(st, "foo", "", nil, resources.CreateQuotaResources(11000, 2, 25, nil, 64))
+	err := servicestatetest.MockQuotaInState(st, "foo", "", nil, resources.CreateQuotaResources(11000, 2, 100, nil, 512))
 	c.Assert(err, check.IsNil)
 	err = servicestatetest.MockQuotaInState(st, "bar", "foo", nil, resources.CreateQuotaResources(6000, 0, 100, []int{0, 1}, 256))
 	c.Assert(err, check.IsNil)
@@ -643,9 +643,9 @@ func (s *apiQuotaSuite) TestListQuotas(c *check.C) {
 				Memory: quantity.Size(11000),
 				Cpu: &client.QuotaCpuValues{
 					Count:      2,
-					Percentage: 25,
+					Percentage: 100,
 				},
-				Threads: 64,
+				Threads: 512,
 			},
 			Current: &client.QuotaValues{Memory: quantity.Size(5000), Threads: 1},
 		},
