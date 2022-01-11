@@ -68,6 +68,10 @@ var getQuotaMemUsage = func(grp *quota.Group) (quantity.Size, error) {
 	return grp.CurrentMemoryUsage()
 }
 
+var getQuotaTaskUsage = func(grp *quota.Group) (int, error) {
+	return grp.CurrentTaskUsage()
+}
+
 func createQuotaValues(memoryLimit quantity.Size, cpuCount int, cpuPercentage int, allowedCpus []int, threadLimit int) *client.QuotaValues {
 	var quotaValues client.QuotaValues
 	quotaValues.Memory = memoryLimit
@@ -106,18 +110,34 @@ func getQuotaGroups(c *Command, r *http.Request, _ *auth.UserState) Response {
 	for i, name := range names {
 		group := quotas[name]
 
-		memoryUsage, err := getQuotaMemUsage(group)
+		var currentUsage client.QuotaValues
+		currentUsage.Memory, err = getQuotaMemUsage(group)
 		if err != nil {
 			return InternalError(err.Error())
 		}
 
+		currentUsage.Threads, err = getQuotaTaskUsage(group)
+		if err != nil {
+			return InternalError(err.Error())
+		}
+
+		var constraints client.QuotaValues
+		constraints.Memory = group.MemoryLimit
+		constraints.Threads = group.TaskLimit
+		if group.CpuLimit != nil {
+			constraints.Cpu = &client.QuotaCpuValues{
+				Count:       group.CpuLimit.Count,
+				Percentage:  group.CpuLimit.Percentage,
+				AllowedCpus: group.CpuLimit.AllowedCpus,
+			}
+		}
 		results[i] = client.QuotaGroupResult{
 			GroupName:   group.Name,
 			Parent:      group.ParentGroup,
 			Subgroups:   group.SubGroups,
 			Snaps:       group.Snaps,
-			Constraints: createQuotaValues(group.MemoryLimit, 0, 0, nil, 0),
-			Current:     createQuotaValues(memoryUsage, 0, 0, nil, 0),
+			Constraints: &constraints,
+			Current:     &currentUsage,
 		}
 	}
 	return SyncResponse(results)
