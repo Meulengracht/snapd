@@ -131,7 +131,20 @@ func (qr *QuotaResources) Change(newLimits QuotaResources) error {
 		qr.Memory = newLimits.Memory
 	}
 	if newLimits.Cpu != nil {
-		qr.Cpu = newLimits.Cpu
+		if qr.Cpu == nil {
+			qr.Cpu = newLimits.Cpu
+		} else {
+			// update count/percentage as one unit
+			if newLimits.Cpu.Count != 0 || newLimits.Cpu.Percentage != 0 {
+				qr.Cpu.Count = newLimits.Cpu.Count
+				qr.Cpu.Percentage = newLimits.Cpu.Percentage
+			}
+
+			// update allowed cpus as one unit
+			if len(newLimits.Cpu.AllowedCpus) != 0 {
+				qr.Cpu.AllowedCpus = newLimits.Cpu.AllowedCpus
+			}
+		}
 	}
 	if newLimits.Thread != nil {
 		qr.Thread = newLimits.Thread
