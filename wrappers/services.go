@@ -104,7 +104,7 @@ func formatCpuGroupSlice(grp *quota.Group) string {
 			return ""
 		}
 
-		cpuQuotaFormat := "CPUQuota=%d\n"
+		cpuQuotaFormat := "CPUQuota=%d%%\n"
 		cpuQuotaSnap := max(grp.CpuLimit.Count, 1) * grp.CpuLimit.Percentage
 		cpuQuotaMax := runtime.NumCPU() * 100
 		return fmt.Sprintf(cpuQuotaFormat, min(cpuQuotaSnap, cpuQuotaMax))
