@@ -20,6 +20,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"runtime"
@@ -428,12 +429,69 @@ func (x *cmdQuotas) Execute(args []string) (err error) {
 			return fmt.Errorf("internal error: constraints is missing from daemon response")
 		}
 
-		constraintVal := "memory=" + strings.TrimSpace(fmtSize(int64(q.Constraints.Memory)))
-		currentVal := ""
-		if q.Current != nil && q.Current.Memory != 0 {
-			currentVal = "memory=" + strings.TrimSpace(fmtSize(int64(q.Current.Memory)))
+		var grpConstraintsBuffer bytes.Buffer
+		var addComma bool
+
+		// format memory constraint as memory=N
+		if q.Constraints.Memory != 0 {
+			grpConstraintsBuffer.WriteString("memory=" + strings.TrimSpace(fmtSize(int64(q.Constraints.Memory))))
+			addComma = true
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", q.GroupName, q.Parent, constraintVal, currentVal)
+
+		// format cpu constraint as cpu=NxM%,allowed-cpus=x,y,z
+		if q.Constraints.Cpu != nil {
+			if q.Constraints.Cpu.Count != 0 || q.Constraints.Cpu.Percentage != 0 {
+				if addComma {
+					grpConstraintsBuffer.WriteString(",")
+				}
+				grpConstraintsBuffer.WriteString("cpu=")
+				if q.Constraints.Cpu.Count != 0 {
+					grpConstraintsBuffer.WriteString(fmt.Sprintf("%dx", q.Constraints.Cpu.Count))
+				}
+				if q.Constraints.Cpu.Percentage != 0 {
+					grpConstraintsBuffer.WriteString(fmt.Sprintf("%d%%", q.Constraints.Cpu.Percentage))
+				}
+
+				addComma = true
+			}
+
+			if len(q.Constraints.Cpu.AllowedCpus) > 0 {
+				if addComma {
+					grpConstraintsBuffer.WriteString(",")
+				}
+
+				allowedCpus := strings.Trim(strings.Join(strings.Fields(fmt.Sprint(q.Constraints.Cpu.AllowedCpus)), ","), "[]")
+				grpConstraintsBuffer.WriteString("allowed-cpus=" + allowedCpus)
+
+				addComma = true
+			}
+		}
+
+		// format threads constraint as thread=N
+		if q.Constraints.Threads != 0 {
+			if addComma {
+				grpConstraintsBuffer.WriteString(",")
+			}
+			grpConstraintsBuffer.WriteString("thread=" + strconv.Itoa(q.Constraints.Threads))
+		}
+
+		// format current resource values as memory=N,thread=N
+		addComma = false
+		var grpCurrentBuffer bytes.Buffer
+		if q.Current != nil {
+			if q.Current.Memory != 0 {
+				grpCurrentBuffer.WriteString("memory=" + strings.TrimSpace(fmtSize(int64(q.Current.Memory))))
+				addComma = true
+			}
+			if q.Current.Threads != 0 {
+				if addComma {
+					grpCurrentBuffer.WriteString(",")
+				}
+				grpCurrentBuffer.WriteString("thread=" + fmt.Sprintf("%d", q.Current.Threads))
+			}
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", q.GroupName, q.Parent, grpConstraintsBuffer.String(), grpCurrentBuffer.String())
 
 		return nil
 	})
