@@ -198,14 +198,26 @@ func (s *quotaSuite) TestSetQuotaInvalidArgs(c *check.C) {
 		{[]string{"set-quota", "--cpu=200", "foo"}, `invalid cpu quota format specified for --cpu`},
 		{[]string{"set-quota", "--cpu=20D", "foo"}, `invalid cpu quota format specified for --cpu`},
 		{[]string{"set-quota", "--cpu=ASD", "foo"}, `invalid cpu quota format specified for --cpu`},
+		{[]string{"set-quota", "--cpu-set=x", "foo"}, `cannot parse value for --cpu-set at position 0`},
+		{[]string{"set-quota", "--cpu-set=1:2", "foo"}, `cannot parse value for --cpu-set at position 0`},
+		{[]string{"set-quota", "--cpu-set=60000", "foo"}, `invalid cpu number 60000 in --cpu-set`},
+		{[]string{"set-quota", "--cpu-set=0,-2", "foo"}, `invalid cpu number -2 in --cpu-set`},
 		// remove-quota command
 		{[]string{"remove-quota"}, "the required argument `<group-name>` was not provided"},
 	} {
 		s.stdout.Reset()
 		s.stderr.Reset()
 
+		// Mock the CGroup version here to test the --cpu-set command
+		restore := main.MockGetCGroupVersion(func() (int, error) {
+			return 2, nil
+		})
+
 		_, err := main.Parser(main.Client()).ParseArgs(args.args)
 		c.Assert(err, check.ErrorMatches, args.err)
+
+		// Restore the cgroup version callback
+		restore()
 	}
 }
 

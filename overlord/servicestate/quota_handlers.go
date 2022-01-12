@@ -252,7 +252,7 @@ func quotaCreate(st *state.State, action QuotaControlAction, allGrps map[string]
 
 	// make sure the resource limits for the group are valid
 	if err := action.ResourceLimits.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("limits for group %q could not be validated: %v", action.QuotaName, err)
+		return nil, nil, fmt.Errorf("cannot create group %q: %v", action.QuotaName, err)
 	}
 
 	// make sure the specified snaps exist and aren't currently in another group

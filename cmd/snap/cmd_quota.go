@@ -22,6 +22,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,6 +114,14 @@ type cmdSetQuota struct {
 	} `positional-args:"yes"`
 }
 
+var getCGroupVersion = func() (int, error) {
+	cgv, err := cgroup.Version()
+	if err != nil {
+		return 0, fmt.Errorf("cannot determine cgroup version for parameter --cpu-set: %v", err)
+	}
+	return cgv, nil
+}
+
 func hasQuotaSet(maxMemory string, cpuMax string, cpuSet string, threadMax string) bool {
 	if maxMemory != "" || cpuMax != "" || cpuSet != "" || threadMax != "" {
 		return true
@@ -177,9 +186,9 @@ func parseQuotas(maxMemory string, cpuMax string, cpuSet string, threadMax strin
 	}
 
 	if cpuSet != "" {
-		cgv, err := cgroup.Version()
+		cgv, err := getCGroupVersion()
 		if err != nil {
-			return nil, fmt.Errorf("cannot determine cgroup version for parameter --cpu-set: %v", err)
+			return nil, err
 		}
 		if cgv < 2 {
 			return nil, fmt.Errorf("cannot use --cpu-set with cgroup version %d", cgv)
@@ -189,7 +198,10 @@ func parseQuotas(maxMemory string, cpuMax string, cpuSet string, threadMax strin
 		for i, cpuToken := range cpuTokens {
 			cpu, err := strconv.Atoi(cpuToken)
 			if err != nil {
-				return nil, fmt.Errorf("invalid value specified for --cpu-set at position %d", i)
+				return nil, fmt.Errorf("cannot parse value for --cpu-set at position %d", i)
+			}
+			if cpu < 0 || cpu >= runtime.NumCPU() {
+				return nil, fmt.Errorf("invalid cpu number %d in --cpu-set", cpu)
 			}
 			allowedCpus = append(allowedCpus, cpu)
 		}
