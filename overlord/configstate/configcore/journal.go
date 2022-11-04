@@ -43,6 +43,13 @@ func validateJournalSettings(tr config.ConfGetter) error {
 	return validateBoolFlag(tr, "journal.persistent")
 }
 
+func flushJournals() error {
+	// kill -USR1 service
+	// journalctl --flush
+	// journalctl --rotate
+	return nil
+}
+
 func handleJournalConfiguration(_ sysconfig.Device, tr config.ConfGetter, opts *fsOnlyContext) error {
 	output, err := coreCfg(tr, "journal.persistent")
 	if err != nil {
@@ -80,6 +87,9 @@ func handleJournalConfiguration(_ sysconfig.Device, tr config.ConfGetter, opts *
 			return nil
 		}
 		if err := os.Rename(tempLogPath, logPath); err != nil {
+			return err
+		}
+		if err := flushJournals(); err != nil {
 			return err
 		}
 	case "false":

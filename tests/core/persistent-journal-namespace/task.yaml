@@ -67,3 +67,13 @@ execute: |
   # Verify the path was not recreated, this should have happened
   # immediately, so no need for retries here
   not test -e /var/log/journal/"$MACHINE_ID".snap-group-one
+
+  ls /nono
+  # snap set core journal.persistent=true
+  # systemctl kill -s SIGUSR1 systemd-journald@snap-group-one.service
+  # rm -rf /run/log/journal/7328904db8e7829243213ed9fd44c249.snap-group-one/
+  # du -sh /var/log/journal/7fd26040be8193fd28726a9ebfe47d67.snap-group-one/
+  # journalctl --disk-usage --namespace=snap-group-one
+  # journalctl --verify --namespace=snap-group-one
+  # journalctl --flush
+  # journalctl --rotate --namespace=snap-group-one
