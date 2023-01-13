@@ -580,7 +580,7 @@ type ensureSnapServicesForGroupOptions struct {
 func snapServiceNames(info *snap.Info) []string {
 	var appNames []string
 	for _, app := range info.Services() {
-		appNames = append(appNames, fmt.Sprintf("%s.%s", info.InstanceName(), app.Name))
+		appNames = append(appNames, app.String())
 	}
 	return appNames
 }

@@ -632,8 +632,7 @@ func (es *ensureSnapServicesContext) ensureSnapServiceSystemdUnits(snapInfo *sna
 	for _, svc := range snapInfo.Services() {
 		// if an inclusion list is provided, then we want to make sure this service
 		// is included.
-		// TODO: add an AppInfo.FullName member
-		fullServiceName := fmt.Sprintf("%s.%s", snapInfo.InstanceName(), svc.Name)
+		fullServiceName := svc.String()
 		if len(es.opts.IncludeServices) > 0 && !strutil.ListContains(es.opts.IncludeServices, fullServiceName) {
 			continue
 		}
