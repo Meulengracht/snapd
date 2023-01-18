@@ -543,6 +543,13 @@ func readNumber(token string, syscallName string) (uint64, error) {
 	return uint64(uint32(value)), nil
 }
 
+func errorOnSyscall(syscallName string) bool {
+	if syscallName == "clone3" {
+		return true
+	}
+	return false
+}
+
 func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 	// ignore comments and empty lines
 	if strings.HasPrefix(line, "#") || line == "" {
@@ -559,10 +566,12 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 	syscallName := tokens[0]
 	secSyscall, err := seccomp.GetSyscallFromName(syscallName)
 	if err != nil {
-		log.Printf("%s: not implemented, adding errno-rule", syscallName)
-		errnoRule := seccomp.ActErrno.SetReturnCode(C.ENOSYS)
-		if err = secFilter.AddRuleExact(secSyscall, errnoRule); err != nil {
-			err = secFilter.AddRule(secSyscall, errnoRule)
+		if errorOnSyscall(syscallName) {
+			log.Printf("%s: not implemented, adding errno-rule", syscallName)
+			errnoRule := seccomp.ActTrace.SetReturnCode(C.ENOSYS)
+			if err = secFilter.AddRuleExact(secSyscall, errnoRule); err != nil {
+				err = secFilter.AddRule(secSyscall, errnoRule)
+			}
 		}
 		return err
 	}
