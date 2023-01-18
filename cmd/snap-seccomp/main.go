@@ -194,7 +194,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/seccomp/libseccomp-golang"
+	seccomp "github.com/seccomp/libseccomp-golang"
 
 	"github.com/snapcore/snapd/arch"
 	"github.com/snapcore/snapd/osutil"
@@ -558,11 +558,11 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 	syscallName := tokens[0]
 	secSyscall, err := seccomp.GetSyscallFromName(syscallName)
 	if err != nil {
-		// FIXME: use structed error in libseccomp-golang when
-		//   https://github.com/seccomp/libseccomp-golang/pull/26
-		// gets merged. For now, ignore
-		// unknown syscalls
-		return nil
+		errnoRule := seccomp.ActErrno.SetReturnCode(C.ENOSYS)
+		if err = secFilter.AddRuleExact(secSyscall, errnoRule); err != nil {
+			err = secFilter.AddRule(secSyscall, errnoRule)
+		}
+		return err
 	}
 
 	var conds []seccomp.ScmpCondition
