@@ -189,6 +189,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -558,6 +559,7 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 	syscallName := tokens[0]
 	secSyscall, err := seccomp.GetSyscallFromName(syscallName)
 	if err != nil {
+		log.Printf("%s: not implemented, adding errno-rule", syscallName)
 		errnoRule := seccomp.ActErrno.SetReturnCode(C.ENOSYS)
 		if err = secFilter.AddRuleExact(secSyscall, errnoRule); err != nil {
 			err = secFilter.AddRule(secSyscall, errnoRule)
