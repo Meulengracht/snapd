@@ -571,9 +571,12 @@ func parseLine(line string, secFilter *seccomp.ScmpFilter) error {
 			errnoRule := seccomp.ActTrace.SetReturnCode(C.ENOSYS)
 			if err = secFilter.AddRuleExact(secSyscall, errnoRule); err != nil {
 				err = secFilter.AddRule(secSyscall, errnoRule)
+				if err != nil {
+					return err
+				}
 			}
 		}
-		return err
+		return nil
 	}
 
 	var conds []seccomp.ScmpCondition
