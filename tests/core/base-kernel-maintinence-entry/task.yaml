@@ -22,6 +22,12 @@ debug: |
 
 execute: |
     ls /nono
+    # 18/stable = 1283
+    # 18/edge = 1286
+    # 20/stable = 1277
+    # 20/edge = 1291
+    # 22/stable = 1281
+    # 22/edge = 1289
     same=$(snap info pc-kernel | awk "
         /^  ${KERNEL_CHANNEL}:/ {ch1=\$2}
         /^  ${NEW_KERNEL_CHANNEL}:/ {ch2=\$2}

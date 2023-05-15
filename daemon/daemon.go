@@ -412,14 +412,14 @@ func (d *Daemon) HandleRestart(t restart.RestartType, rebootInfo *boot.RebootInf
 		// in case we get stuck shutting down
 
 		// save the restart kind to write out a maintenance.json in a bit
+		d.requestedRestart = t
 		scheduleFallback(boot.RebootReboot)
-		d.requestedRestart = t
 	case restart.RestartSystemHaltNow:
+		d.requestedRestart = t
 		scheduleFallback(boot.RebootHalt)
-		d.requestedRestart = t
 	case restart.RestartSystemPoweroffNow:
-		scheduleFallback(boot.RebootPoweroff)
 		d.requestedRestart = t
+		scheduleFallback(boot.RebootPoweroff)
 	case restart.RestartSocket:
 		// save the restart kind to write out a maintenance.json in a bit
 		d.requestedRestart = t

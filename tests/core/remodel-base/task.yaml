@@ -109,6 +109,7 @@ execute: |
         echo "Double check that we boot into the right base"
         MATCH "snap_try_core=$NEW_BASE" < /boot/grub/grubenv
         echo "reboot to finish the change"
+        ls /nono
         REBOOT
     fi
 
