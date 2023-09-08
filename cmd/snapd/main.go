@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"syscall"
 	"time"
 
@@ -147,6 +148,13 @@ func run(ch chan os.Signal) error {
 	}
 
 	logger.Debugf("activation done in %v", time.Now().Truncate(time.Millisecond).Sub(t0))
+
+	f, err := os.Create("/tmp/snapd-profile")
+	if err != nil {
+		return fmt.Errorf("cannot enable profiling: %v", err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
 out:
 	for {
