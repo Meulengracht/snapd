@@ -316,6 +316,7 @@ func (gkm *GPGKeypairManager) findByName(name string) (*gpgKeypairInfo, error) {
 	stop := errors.New("stop marker")
 	var hit *gpgKeypairInfo
 	match := func(privk PrivateKey, fpr string, uid string) error {
+		fmt.Printf("verifying key %s == %s", uid, name)
 		if uid == name {
 			hit = &gpgKeypairInfo{
 				privKey:     privk,
