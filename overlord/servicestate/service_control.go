@@ -30,7 +30,64 @@ import (
 	"github.com/snapcore/snapd/wrappers"
 )
 
-// ServiceAction encapsulates a single service-related action (such as starting,
+// SystemServiceAction encapsulates a single service-related action (such as starting,
+// stopping or restarting) run against services of the underlying system. The action is
+// run for services listed in services attribute.
+type SystemServiceAction struct {
+	Action         string   `json:"action"`
+	ActionModifier string   `json:"action-modifier,omitempty"`
+	Services       []string `json:"services,omitempty"`
+}
+
+func (m *ServiceManager) doSystemServiceControl(t *state.Task, _ *tomb.Tomb) error {
+	st := t.State()
+	st.Lock()
+	defer st.Unlock()
+
+	perfTimings := state.TimingsForTask(t)
+	defer perfTimings.Save(st)
+
+	var sc SystemServiceAction
+	err := t.Get("service-action", &sc)
+	if err != nil {
+		return fmt.Errorf("internal error: cannot get service-action: %v", err)
+	}
+
+	if len(sc.Services) == 0 {
+		return fmt.Errorf("internal error: no services specified")
+	}
+
+	meter := snapstate.NewTaskProgressAdapterUnlocked(t)
+
+	// Note - state must be unlocked when calling wrappers below.
+	st.Unlock()
+	switch sc.Action {
+	case "stop":
+		opts := &wrappers.StopSystemServicesOptions{
+			Disable: sc.ActionModifier == "disable",
+		}
+		err = wrappers.StopSystemServices(sc.Services, opts, meter, perfTimings)
+	case "start":
+		opts := &wrappers.StartSystemServicesOptions{
+			Enable: sc.ActionModifier == "enable",
+		}
+		err = wrappers.StartSystemServices(sc.Services, opts, meter, perfTimings)
+	case "restart":
+		opts := &wrappers.RestartSystemServicesOptions{}
+		err = wrappers.RestartSystemServices(sc.Services, opts, meter, perfTimings)
+	case "reload-or-restart":
+		opts := &wrappers.RestartSystemServicesOptions{
+			Reload: true,
+		}
+		err = wrappers.RestartSystemServices(sc.Services, opts, meter, perfTimings)
+	default:
+		err = fmt.Errorf("unhandled service action: %q", sc.Action)
+	}
+	st.Lock()
+	return err
+}
+
+// SnapServiceAction encapsulates a single service-related action (such as starting,
 // stopping or restarting) run against services of a given snap. The action is
 // run for services listed in services attribute, or for all services of the
 // snap if services list is empty.

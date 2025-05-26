@@ -58,6 +58,7 @@ func Manager(st *state.State, runner *state.TaskRunner) *ServiceManager {
 	}
 	// TODO: undo handler
 	runner.AddHandler("service-control", m.doServiceControl, nil)
+	runner.AddHandler("system-service-control", m.doSystemServiceControl, nil)
 
 	// TODO: undo handler
 	runner.AddHandler("quota-control", m.doQuotaControl, nil)
