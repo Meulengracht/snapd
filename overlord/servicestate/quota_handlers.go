@@ -956,17 +956,12 @@ func affectedSnapsForQuotaControl(t *state.Task) (snaps []string, err error) {
 	}
 
 	// if state-updated was already set we can use it
-	var updated quotaStateUpdated
-	if err := t.Get("state-updated", &updated); !errors.Is(err, state.ErrNoState) {
-		if err != nil {
+	if sn, err := internal.QuotaStateSnaps(t); err != nil {
+		if !errors.Is(err, state.ErrNoState) {
 			return nil, err
 		}
-		// TODO: consider boot-id as well?
-		for snapName := range updated.AppsToRestartBySnap {
-			snaps = append(snaps, snapName)
-		}
-		// all set
-		return snaps, nil
+	} else {
+		return sn, nil
 	}
 
 	st := t.State()
