@@ -29,7 +29,6 @@ import (
 
 	"github.com/snapcore/snapd/i18n"
 	"github.com/snapcore/snapd/logger"
-	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/overlord/servicestate/internal"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
@@ -179,11 +178,24 @@ func (m *ServiceManager) doQuotaControl(t *state.Task, _ *tomb.Tomb) error {
 		prevTask = task
 	}
 
+	// If a journal quota was added, we have to support this by starting
+	// and enabling an journal instance manually to avoid systemd managing
+	// the mount namespace.
+	if data.RefreshProfiles && grp != nil && grp.JournalLimit != nil {
+		addStartJournalTask(st, queueTask, grp.Name, grp.JournalNamespaceName())
+	}
+
 	if len(data.AppsToRestartBySnap) > 0 {
 		if data.RefreshProfiles {
 			addRefreshProfileTasks(st, queueTask, data.AppsToRestartBySnap)
 		}
 		addRestartServicesTasks(st, queueTask, qc.QuotaName, data.AppsToRestartBySnap)
+	}
+
+	// If a journal quota was removed, disable the instance after
+	// all units has stopped using it
+	if data.RefreshProfiles && (grp == nil || grp.JournalLimit == nil) {
+		addStopJournalTask(st, queueTask, data.QuotaGroupName, data.QuotaNamespace)
 	}
 
 	if len(ts.Tasks()) > 0 {
@@ -235,6 +247,28 @@ func addRestartServicesTasks(st *state.State, queueTask func(task *state.Task), 
 		})
 		queueTask(restartTask)
 	}
+}
+
+func addStartJournalTask(st *state.State, queueTask func(task *state.Task), groupName, journalNamespace string) {
+	unitName := fmt.Sprintf("systemd-journald@%s.service", journalNamespace)
+	task := st.NewTask("system-service-control", fmt.Sprintf("Starting journal service for %q", groupName))
+	task.Set("service-action", SystemServiceAction{
+		Action:         "start",
+		ActionModifier: "enable",
+		Services:       []string{unitName},
+	})
+	queueTask(task)
+}
+
+func addStopJournalTask(st *state.State, queueTask func(task *state.Task), groupName, journalNamespace string) {
+	unitName := fmt.Sprintf("systemd-journald@%s.service", journalNamespace)
+	task := st.NewTask("system-service-control", fmt.Sprintf("Stopping journal service for %q", groupName))
+	task.Set("service-action", SystemServiceAction{
+		Action:         "stop",
+		ActionModifier: "disable",
+		Services:       []string{unitName},
+	})
+	queueTask(task)
 }
 
 func (m *ServiceManager) doQuotaAddSnap(t *state.Task, _ *tomb.Tomb) error {

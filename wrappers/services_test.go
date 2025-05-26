@@ -559,7 +559,6 @@ ExecStopPost=/usr/bin/snap run --command=post-stop hello-snap.svc1
 TimeoutStopSec=30
 Type=forking
 Slice=snap.foogroup.slice
-LogNamespace=snap-foogroup
 
 [Install]
 WantedBy=multi-user.target
@@ -673,7 +672,6 @@ ExecStopPost=/usr/bin/snap run --command=post-stop hello-snap.svc1
 TimeoutStopSec=30
 Type=forking
 Slice=snap.foogroup.slice
-LogNamespace=snap-foogroup
 
 [Install]
 WantedBy=multi-user.target
@@ -790,7 +788,6 @@ ExecStopPost=/usr/bin/snap run --command=post-stop hello-snap.svc1
 TimeoutStopSec=30
 Type=forking
 Slice=snap.foogroup.slice
-LogNamespace=snap-foogroup
 
 [Install]
 WantedBy=multi-user.target
@@ -933,7 +930,6 @@ WorkingDirectory=/var/snap/hello-snap/12
 TimeoutStopSec=30
 Type=simple
 Slice=snap.%[2]s.slice
-LogNamespace=snap-my-root
 
 [Install]
 WantedBy=multi-user.target
@@ -958,7 +954,6 @@ WorkingDirectory=/var/snap/hello-snap/12
 TimeoutStopSec=30
 Type=simple
 Slice=snap.%[2]s.slice
-LogNamespace=snap-my-root
 
 [Install]
 WantedBy=multi-user.target
@@ -1125,7 +1120,6 @@ WorkingDirectory=/var/snap/hello-snap/12
 TimeoutStopSec=30
 Type=simple
 Slice=snap.%[2]s.slice
-LogNamespace=snap-my-root
 
 [Install]
 WantedBy=multi-user.target

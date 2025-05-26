@@ -136,6 +136,9 @@ After={{ stringsJoin .After " " }}
 {{- if .Before}}
 Before={{ stringsJoin .Before " "}}
 {{- end}}
+{{- if .Requires}}
+Requires={{ stringsJoin .Requires " "}}
+{{- end}}
 {{- if .CoreMountedSnapdSnapDep}}
 Wants={{ stringsJoin .CoreMountedSnapdSnapDep " "}}
 After={{ stringsJoin .CoreMountedSnapdSnapDep " "}}
@@ -147,6 +150,9 @@ X-Snappy=yes
 
 [Service]
 EnvironmentFile=-/etc/environment
+{{- if .LogNamespace}}
+Environment=SNAPD_LOG_NAMESPACE={{.LogNamespace}}
+{{- end}}
 ExecStart={{.App.LauncherCommand}}
 SyslogIdentifier={{.App.Snap.InstanceName}}.{{.App.Name}}
 Restart={{.Restart}}
@@ -193,9 +199,6 @@ OOMScoreAdjust={{.OOMAdjustScore}}
 {{- end}}
 {{- if .SliceUnit}}
 Slice={{.SliceUnit}}
-{{- end}}
-{{- if .LogNamespace}}
-LogNamespace={{.LogNamespace}}
 {{- end}}
 {{- if not (or .App.Sockets .App.Timer .App.ActivatesOn) }}
 
@@ -267,6 +270,7 @@ WantedBy={{.ServicesTarget}}
 		BusName                  string
 		Before                   []string
 		After                    []string
+		Requires                 []string
 		InterfaceServiceSnippets string
 		InterfaceUnitSnippets    string
 		SliceUnit                string
@@ -317,6 +321,7 @@ WantedBy={{.ServicesTarget}}
 	if opts.QuotaGroup != nil {
 		wrapperData.SliceUnit = opts.QuotaGroup.SliceFileName()
 		if opts.QuotaGroup.JournalQuotaSet() {
+			wrapperData.Requires = append(wrapperData.Requires, opts.QuotaGroup.JournalSocketName())
 			wrapperData.LogNamespace = opts.QuotaGroup.JournalNamespaceName()
 		}
 	}

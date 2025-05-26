@@ -783,73 +783,10 @@ WorkingDirectory=/var/snap/snap/44
 TimeoutStopSec=30
 Type=simple
 Slice=snap.foo.slice
-LogNamespace=snap-foo
 
 [Install]
 WantedBy=multi-user.target
 `, mountUnitPrefix, mountUnitPrefix))
-}
-
-func (s *serviceUnitGenSuite) TestQuotaGroupLogNamespaceInheritParent(c *C) {
-	service := &snap.AppInfo{
-		Snap: &snap.Info{
-			SuggestedName: "snap",
-			Version:       "0.3.4",
-			SideInfo:      snap.SideInfo{Revision: snap.R(44)},
-		},
-		Name:        "app",
-		Command:     "bin/foo start",
-		Daemon:      "simple",
-		DaemonScope: snap.SystemDaemon,
-	}
-
-	testCases := []struct {
-		topResources quota.Resources
-		subResources quota.Resources
-		expectedLog  string
-		description  string
-	}{
-		{
-			topResources: quota.NewResourcesBuilder().WithJournalNamespace().Build(),
-			subResources: quota.NewResourcesBuilder().WithMemoryLimit(quantity.SizeGiB / 2).Build(),
-			expectedLog:  "snap-foo",
-			description:  "Setting a namespace on parent, and none on service sub-group, must inherit parent",
-		},
-		{
-			topResources: quota.NewResourcesBuilder().WithJournalNamespace().Build(),
-			subResources: quota.NewResourcesBuilder().WithJournalNamespace().Build(),
-			expectedLog:  "snap-foo",
-			description:  "Setting a namespace on both groups, it should select parent",
-		},
-		{
-			topResources: quota.NewResourcesBuilder().WithMemoryLimit(quantity.SizeGiB).Build(),
-			subResources: quota.NewResourcesBuilder().WithJournalNamespace().Build(),
-			expectedLog:  "",
-			description:  "Setting a namespace on only sub-group, no namespace should be selected",
-		},
-	}
-
-	for _, t := range testCases {
-		grp, err := quota.NewGroup("foo", t.topResources)
-		c.Assert(err, IsNil)
-		sub, err := grp.NewSubGroup("foosub", t.subResources)
-		c.Assert(err, IsNil)
-
-		// if this is not set, then it won't be considered
-		sub.Services = []string{"snap.app"}
-
-		opts := &internal.SnapServicesUnitOptions{QuotaGroup: sub}
-		generatedWrapper, err := internal.GenerateSnapServiceUnitFile(service, opts)
-		c.Assert(err, IsNil)
-		c.Check(string(generatedWrapper), testutil.Contains, "Slice=snap.foo-foosub.slice", Commentf("test failed: %s", t.description))
-		if t.expectedLog != "" {
-			c.Check(string(generatedWrapper), testutil.Contains, fmt.Sprintf("LogNamespace=%s", t.expectedLog), Commentf("test failed: %s", t.description))
-		} else {
-			// no negative check? :(
-			found := strings.Contains(string(generatedWrapper), fmt.Sprintf("LogNamespace=%s", t.expectedLog))
-			c.Check(found, Equals, false, Commentf("test failed: %s", t.description))
-		}
-	}
 }
 
 type ifaceWithServiceSnippet struct {

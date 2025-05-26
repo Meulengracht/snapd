@@ -71,7 +71,7 @@ func (s *quotaHandlersSuite) SetUpTest(c *C) {
 func (s *quotaHandlersSuite) TestDoQuotaControlCreate(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// doQuotaControl handler to create the group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 	))
 	defer r()
 
@@ -124,7 +124,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlCreateRestartOK(c *C) {
 	// test a situation where because of restart the task is reentered
 	r := s.mockSystemctlCalls(c, join(
 		// doQuotaControl handler to create the group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 		// after task restart
 		systemctlCallsForServiceRestart("test-snap"),
 	))
@@ -199,7 +199,7 @@ func (s *quotaHandlersSuite) TestQuotaStateAlreadyUpdatedBehavior(c *C) {
 	// test a situation where because of restart the task is reentered
 	r := s.mockSystemctlCalls(c, join(
 		// doQuotaControl handler to create the group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 	))
 	defer r()
 
@@ -281,7 +281,7 @@ func (s *quotaHandlersSuite) TestQuotaStateAlreadyUpdatedBehavior(c *C) {
 func (s *quotaHandlersSuite) TestDoQuotaControlUpdate(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo-group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 
 		// doQuotaControl handler which updates the group
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
@@ -328,7 +328,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdateRestartOK(c *C) {
 	// test a situation where because of restart the task is reentered
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo-group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 
 		// doQuotaControl handler which updates the group
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
@@ -381,7 +381,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlUpdateRestartOK(c *C) {
 func (s *quotaHandlersSuite) TestDoQuotaControlRemove(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo-group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 
 		// doQuotaControl handler which removes the group
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
@@ -425,7 +425,7 @@ func (s *quotaHandlersSuite) TestDoQuotaControlRemoveRestartOK(c *C) {
 	// test a situation where because of restart the task is reentered
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo-group
-		systemctlCallsForCreateQuota("foo-group", "test-snap"),
+		systemctlCallsForCreateQuota("foo-group", false, "test-snap"),
 
 		// doQuotaControl handler which removes the group
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
@@ -583,7 +583,7 @@ func (s *quotaHandlersSuite) TestQuotaCreate(c *C) {
 		// CreateQuota for non-installed snap - fails
 
 		// CreateQuota for foo - success
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// CreateQuota for foo2 with overlapping snap already in foo
 
@@ -909,7 +909,7 @@ func (s *quotaHandlersSuite) TestQuotaRemoveWithLimitSetFails(c *C) {
 func (s *quotaHandlersSuite) TestQuotaSnapMixSubgroupWithSnapsHappy(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -2047,7 +2047,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateSubGroupTooBig(c *C) {
 func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// UpdateQuota for foo - an existing slice was changed, so all we need
 		// to is daemon-reload
@@ -2112,7 +2112,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateChangeMemLimit(c *C) {
 func (s *quotaHandlersSuite) TestQuotaUpdateJournalQuotaNotAllowedForServices(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 
 		// CreateQuota for foo2
@@ -2160,7 +2160,7 @@ func (s *quotaHandlersSuite) TestQuotaUpdateJournalQuotaNotAllowedForServices(c 
 func (s *quotaHandlersSuite) TestCreateJournalQuota(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", true, "test-snap"),
 	))
 	defer r()
 
@@ -2217,10 +2217,10 @@ func (s *quotaHandlersSuite) TestCreateJournalQuota(c *C) {
 func (s *quotaHandlersSuite) TestAddJournalQuota(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// UpdateQuota for foo
-		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
+		systemctlCallsForJournalStart("foo"),
 		systemctlCallsForServiceRestart("test-snap"),
 	))
 	defer r()
@@ -2386,6 +2386,7 @@ func (s *quotaHandlersSuite) TestRemoveJournalQuota(c *C) {
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 		systemctlCallsForSliceStop("foo"),
 		systemctlCallsForServiceRestart("test-snap"),
+		systemctlCallsForJournalStop("foo"),
 	))
 	defer r()
 
@@ -2438,7 +2439,7 @@ func (s *quotaHandlersSuite) TestRemoveJournalQuota(c *C) {
 func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// UpdateQuota with just test-snap2 restarted since the group already
 		// exists
@@ -2504,10 +2505,10 @@ func (s *quotaHandlersSuite) TestQuotaUpdateAddSnap(c *C) {
 func (s *quotaHandlersSuite) TestQuotaUpdateAddSnapAlreadyInOtherGroup(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// CreateQuota for foo2
-		systemctlCallsForCreateQuota("foo2", "test-snap2"),
+		systemctlCallsForCreateQuota("foo2", false, "test-snap2"),
 
 		// UpdateQuota for foo which fails - no systemctl calls
 	))

@@ -32,6 +32,7 @@ import (
 	"github.com/snapcore/snapd/gadget/quantity"
 	"github.com/snapcore/snapd/overlord/configstate/config"
 	"github.com/snapcore/snapd/overlord/servicestate"
+	"github.com/snapcore/snapd/overlord/servicestate/internal"
 	"github.com/snapcore/snapd/overlord/servicestate/servicestatetest"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/snapstate/snapstatetest"
@@ -208,6 +209,42 @@ func systemctlCallsForSliceStop(name string) []expectedSystemctl {
 	}
 }
 
+func systemctlCallsForJournalStart(name string) []expectedSystemctl {
+	svc := "systemd-journald@snap-" + name + ".service"
+	return []expectedSystemctl{
+		{
+			expArgs: []string{"--no-reload", "enable", svc},
+			output:  "ActiveState=active",
+		},
+		{
+			expArgs: []string{"daemon-reload"},
+		},
+		{
+			expArgs: []string{"start", svc},
+			output:  "ActiveState=active",
+		},
+	}
+}
+
+func systemctlCallsForJournalStop(name string) []expectedSystemctl {
+	svc := "systemd-journald@snap-" + name + ".service"
+	return []expectedSystemctl{
+		{
+			expArgs: []string{"stop", svc},
+		},
+		{
+			expArgs: []string{"show", "--property=ActiveState", svc},
+			output:  "ActiveState=inactive",
+		},
+		{
+			expArgs: []string{"--no-reload", "disable", svc},
+		},
+		{
+			expArgs: []string{"daemon-reload"},
+		},
+	}
+}
+
 func systemctlCallsForServiceRestart(name string) []expectedSystemctl {
 	svc := "snap." + name + ".svc1.service"
 	return []expectedSystemctl{
@@ -252,11 +289,14 @@ func systemctlCallsForMultipleServiceRestart(name string, svcs []string) []expec
 	return expCalls
 }
 
-func systemctlCallsForCreateQuota(groupName string, snapNames ...string) []expectedSystemctl {
+func systemctlCallsForCreateQuota(groupName string, journal bool, snapNames ...string) []expectedSystemctl {
 	calls := join(
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
 		systemctlCallsForSliceStart(groupName),
 	)
+	if journal {
+		calls = join(calls, systemctlCallsForJournalStart(groupName))
+	}
 	for _, snapName := range snapNames {
 		calls = join(calls, systemctlCallsForServiceRestart(snapName))
 	}
@@ -490,7 +530,7 @@ func (s *quotaControlSuite) TestCreateUnhappyCheckFeatureReqs(c *C) {
 func (s *quotaControlSuite) TestUpdateUnhappyCheckFeatureReqs(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo - success
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -533,7 +573,7 @@ func (s *quotaControlSuite) TestUpdateUnhappyCheckFeatureReqs(c *C) {
 func (s *quotaControlSuite) TestCreateUpdateRemoveQuotaHappy(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo - success
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 
 		// UpdateQuota for foo
 		[]expectedSystemctl{{expArgs: []string{"daemon-reload"}}},
@@ -658,10 +698,10 @@ func (s *quotaControlSuite) TestCreateUpdateRemoveQuotaHappy(c *C) {
 func (s *quotaControlSuite) TestEnsureSnapAbsentFromQuotaGroup(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap", "test-snap2"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap", "test-snap2"),
 
 		// CreateQuota for foo2
-		systemctlCallsForCreateQuota("foo/foo2"),
+		systemctlCallsForCreateQuota("foo/foo2", false),
 		systemctlCallsForServiceRestart("test-snap"),
 
 		// EnsureSnapAbsentFromQuota with just test-snap restarted since it is
@@ -885,7 +925,7 @@ func (s *quotaControlSuite) createQuota(c *C, name string, limits quota.Resource
 func (s *quotaControlSuite) TestSnapOpUpdateQuotaConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -946,7 +986,7 @@ func (s *quotaControlSuite) TestSnapOpCreateQuotaConflict(c *C) {
 func (s *quotaControlSuite) TestSnapOpRemoveQuotaConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -997,7 +1037,7 @@ func (s *quotaControlSuite) TestCreateQuotaSnapOpConflict(c *C) {
 func (s *quotaControlSuite) TestUpdateQuotaSnapOpConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -1036,7 +1076,7 @@ func (s *quotaControlSuite) TestUpdateQuotaSnapOpConflict(c *C) {
 func (s *quotaControlSuite) TestRemoveQuotaSnapOpConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -1065,8 +1105,11 @@ func (s *quotaControlSuite) TestRemoveQuotaSnapOpConflict(c *C) {
 func (s *quotaControlSuite) TestRemoveQuotaLateSnapOpConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
+	defer r()
+
+	r = internal.MockOsutilBootID("boot-id")
 	defer r()
 
 	st := s.state
@@ -1075,7 +1118,7 @@ func (s *quotaControlSuite) TestRemoveQuotaLateSnapOpConflict(c *C) {
 
 	// setup test-snap
 	snapstate.Set(s.state, "test-snap", s.testSnapState)
-	snaptest.MockSnapCurrent(c, testYaml, s.testSnapSideInfo)
+	info := snaptest.MockSnapCurrent(c, testYaml, s.testSnapSideInfo)
 
 	// create a quota group
 	defer s.se.Stop()
@@ -1091,13 +1134,11 @@ func (s *quotaControlSuite) TestRemoveQuotaLateSnapOpConflict(c *C) {
 	// the group is already gone, but the task is not finished
 	s.state.Set("quotas", nil)
 	task := ts.Tasks()[0]
-	task.Set("state-updated", servicestate.QuotaStateUpdated{
-		BootID: "boot-id",
-		AppsToRestartBySnap: map[string][]string{
-			"test-snap": {"svc1"},
+	internal.QuotaStateUpdate(task, &internal.QuotaStateItems{
+		AppsToRestartBySnap: map[*snap.Info][]*snap.AppInfo{
+			info: {info.Apps["svc1"]},
 		},
 	})
-
 	_, err = snapstate.Disable(st, "test-snap")
 	c.Assert(err, ErrorMatches, `snap "test-snap" has "quota-control" change in progress`)
 }
@@ -1105,7 +1146,7 @@ func (s *quotaControlSuite) TestRemoveQuotaLateSnapOpConflict(c *C) {
 func (s *quotaControlSuite) TestUpdateQuotaUpdateQuotaConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -1145,7 +1186,7 @@ func (s *quotaControlSuite) TestUpdateQuotaUpdateQuotaConflict(c *C) {
 func (s *quotaControlSuite) TestUpdateQuotaRemoveQuotaConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
@@ -1184,7 +1225,7 @@ func (s *quotaControlSuite) TestUpdateQuotaRemoveQuotaConflict(c *C) {
 func (s *quotaControlSuite) TestRemoveQuotaUpdateQuotaConflict(c *C) {
 	r := s.mockSystemctlCalls(c, join(
 		// CreateQuota for foo
-		systemctlCallsForCreateQuota("foo", "test-snap"),
+		systemctlCallsForCreateQuota("foo", false, "test-snap"),
 	))
 	defer r()
 
