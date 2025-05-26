@@ -387,6 +387,93 @@ func StartSnapServices(apps []*snap.AppInfo, disabledSvcs *DisabledServices, opt
 	return nil
 }
 
+// StartSystemServicesOptions carries additional parameters for StartSystemServices.
+type StartSystemServicesOptions struct {
+	Enable bool
+}
+
+// StartSystemServices starts service units for the applications from the snap which
+// are services. Service units will be started in the order provided by the
+// caller.
+func StartSystemServices(services []string, opts *StartSystemServicesOptions, inter Interacter, tm timings.Measurer) (err error) {
+	if opts == nil {
+		opts = &StartSystemServicesOptions{}
+	}
+
+	systemSysd := systemd.New(systemd.SystemMode, inter)
+
+	var undoStart bool
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		if undoStart {
+			// Stop them one-by-one to maintain order, the issue is if we just send all of them down
+			// to systemd, it will spawn a process for each stop anyway, just simultaneously.
+			for _, svc := range services {
+				if e := systemSysd.Stop([]string{svc}); e != nil {
+					inter.Notify(fmt.Sprintf("While trying to stop previously started service %q: %v", svc, e))
+				}
+			}
+		}
+
+		// always disable if enable was requested, as we do this pre-start
+		if opts.Enable {
+			if len(services) != 0 {
+				if e := systemSysd.DisableNoReload(services); e != nil {
+					inter.Notify(fmt.Sprintf("While trying to disable previously enabled services %q: %v", services, e))
+				}
+				if e := systemSysd.DaemonReload(); e != nil {
+					inter.Notify(fmt.Sprintf("While trying to do daemon-reload: %v", e))
+				}
+			}
+		}
+	}()
+
+	if opts.Enable {
+		timings.Run(tm, "enable-services", fmt.Sprintf("enable services %q", services), func(nested timings.Measurer) {
+			if len(services) != 0 {
+				if err = systemSysd.EnableNoReload(services); err != nil {
+					return
+				}
+				if err = systemSysd.DaemonReload(); err != nil {
+					return
+				}
+				undoStart = true
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	timings.Run(tm, "start-services", "start services", func(nestedTm timings.Measurer) {
+		for _, srv := range services {
+			// let the cleanup know some services may have been started
+			undoStart = true
+
+			// starting all services at once does not create a
+			// single transaction, but instead spawns multiple jobs,
+			// make sure the services started in the original order
+			// by bringing them up one by one, see:
+			// https://github.com/systemd/systemd/issues/8102
+			// https://lists.freedesktop.org/archives/systemd-devel/2018-January/040152.html
+			timings.Run(nestedTm, "start-service", fmt.Sprintf("start service %q", srv), func(_ timings.Measurer) {
+				err = systemSysd.Start([]string{srv})
+			})
+			if err != nil {
+				return
+			}
+		}
+	})
+	if undoStart && err != nil {
+		// cleanup is handled in a defer
+		return err
+	}
+	return nil
+}
+
 func userDaemonReload() error {
 	cli := client.New()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout.DefaultTimeout))
@@ -1065,6 +1152,48 @@ func StopSnapServices(apps []*snap.AppInfo, opts *StopSnapServicesOptions, reaso
 	return nil
 }
 
+// StopSystemServicesOptions carries additional parameters for StopSystemServices.
+type StopSystemServicesOptions struct {
+	Disable bool
+}
+
+// StopSystemServices stops and optionally disables system service units.
+func StopSystemServices(services []string, opts *StopSystemServicesOptions, inter Interacter, tm timings.Measurer) error {
+	if opts == nil {
+		opts = &StopSystemServicesOptions{}
+	}
+
+	logger.Debugf("StopSystemServices called for %q", services)
+	sysd := systemd.New(systemd.SystemMode, inter)
+
+	var err error
+	timings.Run(tm, "stop-services", "stop services", func(nestedTm timings.Measurer) {
+		for _, srv := range services {
+			timings.Run(nestedTm, "stop-service", fmt.Sprintf("stop service %q", srv), func(_ timings.Measurer) {
+				err = sysd.Stop([]string{srv})
+			})
+			if err != nil {
+				return
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+
+	if opts.Disable {
+		if len(services) > 0 {
+			if err := sysd.DisableNoReload(services); err != nil {
+				return err
+			}
+			if err := sysd.DaemonReload(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // RemoveQuotaGroup ensures that the slice file for a quota group is removed. It
 // assumes that the slice corresponding to the group is not in use anymore by
 // any services or sub-groups of the group when it is invoked. To remove a group
@@ -1330,6 +1459,28 @@ func RestartSnapServices(apps []*snap.AppInfo, explicitServices []string,
 		}
 	}
 	return nil
+}
+
+// RestartSystemServices carries additional parameters for RestartSystemServices.
+type RestartSystemServicesOptions struct {
+	// Reload set if we might need to reload the service definitions.
+	Reload bool
+}
+
+// Restart or reload active services in `services`.
+// If reload flag is set then "systemctl reload-or-restart" is attempted.
+func RestartSystemServices(services []string,
+	opts *RestartSystemServicesOptions, inter Interacter, tm timings.Measurer) error {
+	if opts == nil {
+		opts = &RestartSystemServicesOptions{}
+	}
+	sysd := systemd.New(systemd.SystemMode, inter)
+
+	var err error
+	timings.Run(tm, "restart-service", fmt.Sprintf("restart service(s) %s", services), func(nested timings.Measurer) {
+		err = reloadOrRestartServices(sysd, nil, opts.Reload, snap.SystemDaemon, services)
+	})
+	return err
 }
 
 // DisabledServices represents an overview of which services in a snap
