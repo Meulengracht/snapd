@@ -583,6 +583,24 @@ func SnapServiceOptions(st *state.State, snapInfo *snap.Info, quotaGroups map[st
 		}
 	}
 
+	// consider slots provided by refreshed snap, but exclude core and snapd
+	// since they provide system-level slots that are generally not disrupted
+	// by snap updates.
+	if up.SnapType != snap.TypeSnapd && up.SnapName() != "core" {
+		for _, slotInfo := range up.Slots {
+			conns, err := repo.Connected(up.InstanceName(), slotInfo.Name)
+			if err != nil {
+				return nil, err
+			}
+			for _, cref := range conns {
+				// affected only if it wasn't optimized out above
+				if snapsWithHook[cref.PlugRef.Snap] != nil {
+					addAffected(cref.PlugRef.Snap, up.InstanceName(), true, false)
+				}
+			}
+		}
+	}
+
 	return opts, nil
 }
 
