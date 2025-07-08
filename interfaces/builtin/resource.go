@@ -35,13 +35,17 @@ const resourceBaseDeclarationSlots = `
         - app
         - core
     allow-connection:
-      plug-attributes:
-        resource: $SLOT(resource)
-    allow-auto-connection:
-      plug-publisher-id:
-        - $SLOT_PUBLISHER_ID
-      plug-attributes:
-        resource: $SLOT(resource)
+      -
+        slot-names:
+          - network
+          - network-pre
+          - systemd-udev-settle
+        slot-snap-type:
+          - core
+      -
+        slot-snap-type:
+          - app
+    deny-auto-connection: true
 `
 
 // resourceInterface allows snaps to define service dependency and ordering between
@@ -55,6 +59,8 @@ func (iface *resourceInterface) Name() string {
 func (iface *resourceInterface) StaticInfo() interfaces.StaticInfo {
 	return interfaces.StaticInfo{
 		Summary:              resourceSummary,
+		ImplicitOnCore:       true,
+		ImplicitOnClassic:    true,
 		BaseDeclarationSlots: resourceBaseDeclarationSlots,
 	}
 }
@@ -86,7 +92,7 @@ func (iface *resourceInterface) BeforePrepareSlot(slot *snap.SlotInfo) error {
 
 func validateResourceRelation(plugName, relation string) error {
 	switch relation {
-	case "after", "before", "bind-after":
+	case "after", "before", "bind-after", "bind-before":
 		return nil
 	}
 	return fmt.Errorf("resource plug %s: invalid 'relation' defined: %s", relation)
@@ -111,8 +117,7 @@ func (iface *resourceInterface) BeforePreparePlug(plug *snap.PlugInfo) error {
 	return validateResourceRelation(plug.Name, relation)
 }
 
-func (iface *resourceInterface) AutoConnect(plug *snap.PlugInfo, slot *snap.SlotInfo) bool {
-	// allow what declarations allowed
+func (iface *resourceInterface) AutoConnect(*snap.PlugInfo, *snap.SlotInfo) bool {
 	return true
 }
 
