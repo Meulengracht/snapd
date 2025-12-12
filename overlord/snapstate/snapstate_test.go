@@ -437,6 +437,7 @@ func AddForeignTaskHandlers(runner *state.TaskRunner, tracker ForeignTaskTracker
 
 		return tracker.ForeignTask(kind, status, snapsup, compsup)
 	}
+	runner.AddHandler("prepare-profiles", fakeHandler, fakeHandler)
 	runner.AddHandler("setup-profiles", fakeHandler, fakeHandler)
 	runner.AddHandler("auto-connect", fakeHandler, fakeHandler)
 	runner.AddHandler("auto-disconnect", fakeHandler, nil)
@@ -750,9 +751,10 @@ func (s *snapmgrTestSuite) testRevertTasksFullFlags(flags fullFlags, c *C) {
 		"stop-snap-services",
 		"remove-aliases",
 		"unlink-current-snap",
-		"setup-profiles",
+		"prepare-profiles",
 		"link-snap",
 		"auto-connect",
+		"setup-profiles",
 		"set-auto-aliases",
 		"setup-aliases",
 		"start-snap-services",
@@ -863,9 +865,10 @@ func (s *snapmgrTestSuite) TestRevertCreatesNoGCTasks(c *C) {
 		"stop-snap-services",
 		"remove-aliases",
 		"unlink-current-snap",
-		"setup-profiles",
+		"prepare-profiles",
 		"link-snap",
 		"auto-connect",
+		"setup-profiles",
 		"set-auto-aliases",
 		"setup-aliases",
 		"start-snap-services",
@@ -1718,7 +1721,7 @@ func (s *snapmgrTestSuite) testRevertRunThrough(c *C, refreshAppAwarenessUX bool
 			unlinkSkipBinaries: refreshAppAwarenessUX,
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(2),
 		},
@@ -1738,6 +1741,11 @@ func (s *snapmgrTestSuite) testRevertRunThrough(c *C, refreshAppAwarenessUX bool
 		},
 		{
 			op:    "auto-connect:Doing",
+			name:  "some-snap",
+			revno: snap.R(2),
+		},
+		{
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(2),
 		},
@@ -1994,7 +2002,7 @@ func (s *snapmgrTestSuite) revertWithBase(c *C, expectedRev snap.Revision, expec
 				path: filepath.Join(dirs.SnapMountDir, "snap-core18-to-core22/7"),
 			},
 			{
-				op:    "setup-profiles:Doing",
+				op:    "prepare-profiles:Doing",
 				name:  "snap-core18-to-core22",
 				revno: snap.R(1),
 			},
@@ -2014,6 +2022,11 @@ func (s *snapmgrTestSuite) revertWithBase(c *C, expectedRev snap.Revision, expec
 			},
 			{
 				op:    "auto-connect:Doing",
+				name:  "snap-core18-to-core22",
+				revno: snap.R(1),
+			},
+			{
+				op:    "setup-profiles:Doing",
 				name:  "snap-core18-to-core22",
 				revno: snap.R(1),
 			},
@@ -2091,7 +2104,7 @@ func (s *snapmgrTestSuite) TestParallelInstanceRevertRunThrough(c *C) {
 			otherInstances: true,
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "some-snap_instance",
 			revno: snap.R(2),
 		},
@@ -2112,6 +2125,11 @@ func (s *snapmgrTestSuite) TestParallelInstanceRevertRunThrough(c *C) {
 		},
 		{
 			op:    "auto-connect:Doing",
+			name:  "some-snap_instance",
+			revno: snap.R(2),
+		},
+		{
+			op:    "setup-profiles:Doing",
 			name:  "some-snap_instance",
 			revno: snap.R(2),
 		},
@@ -2179,7 +2197,7 @@ func (s *snapmgrTestSuite) TestRevertWithLocalRevisionRunThrough(c *C) {
 
 	s.settle(c)
 
-	c.Assert(s.fakeBackend.ops.Ops(), HasLen, 10)
+	c.Assert(s.fakeBackend.ops.Ops(), HasLen, 11)
 
 	// verify that LocalRevision is still -7
 	var snapst snapstate.SnapState
@@ -2239,7 +2257,7 @@ func (s *snapmgrTestSuite) TestRevertToRevisionNewVersion(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(7),
 		},
@@ -2256,6 +2274,11 @@ func (s *snapmgrTestSuite) TestRevertToRevisionNewVersion(c *C) {
 		},
 		{
 			op:    "auto-connect:Doing",
+			name:  "some-snap",
+			revno: snap.R(7),
+		},
+		{
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(7),
 		},
@@ -2334,7 +2357,7 @@ func (s *snapmgrTestSuite) TestRevertTotalUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2358,12 +2381,22 @@ func (s *snapmgrTestSuite) TestRevertTotalUndoRunThrough(c *C) {
 			revno: snap.R(1),
 		},
 		{
+			op:    "setup-profiles:Doing",
+			name:  "some-snap",
+			revno: snap.R(1),
+		},
+		{
 			op: "update-aliases",
 		},
 		// undoing everything from here down...
 		{
 			op:   "remove-snap-aliases",
 			name: "some-snap",
+		},
+		{
+			op:    "setup-profiles:Undoing",
+			name:  "some-snap",
+			revno: snap.R(1),
 		},
 		{
 			op:    "auto-connect:Undoing",
@@ -2375,7 +2408,7 @@ func (s *snapmgrTestSuite) TestRevertTotalUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/1"),
 		},
 		{
-			op:    "setup-profiles:Undoing",
+			op:    "prepare-profiles:Undoing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2453,7 +2486,7 @@ func (s *snapmgrTestSuite) TestRevertUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2474,7 +2507,7 @@ func (s *snapmgrTestSuite) TestRevertUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/1"),
 		},
 		{
-			op:    "setup-profiles:Undoing",
+			op:    "prepare-profiles:Undoing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -5966,7 +5999,7 @@ func (s *snapmgrTestSuite) TestTransitionCoreRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapDataSaveDir, "core"),
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "core",
 			revno: snap.R(11),
 		},
@@ -5988,6 +6021,11 @@ func (s *snapmgrTestSuite) TestTransitionCoreRunThrough(c *C) {
 		},
 		{
 			op:    "auto-connect:Doing",
+			name:  "core",
+			revno: snap.R(11),
+		},
+		{
+			op:    "setup-profiles:Doing",
 			name:  "core",
 			revno: snap.R(11),
 		},
@@ -8353,7 +8391,7 @@ func (s *snapmgrTestSuite) TestSnapdRefreshTasks(c *C) {
 			path: filepath.Join(dirs.SnapDataSaveDir, "snapd"),
 		},
 		{
-			op:    "setup-profiles:Doing",
+			op:    "prepare-profiles:Doing",
 			name:  "snapd",
 			revno: snap.R(11),
 		},
@@ -8374,6 +8412,11 @@ func (s *snapmgrTestSuite) TestSnapdRefreshTasks(c *C) {
 		},
 		{
 			op:    "auto-connect:Doing",
+			name:  "snapd",
+			revno: snap.R(11),
+		},
+		{
+			op:    "setup-profiles:Doing",
 			name:  "snapd",
 			revno: snap.R(11),
 		},
@@ -8495,6 +8538,7 @@ func (s *snapmgrTestSuite) addSnapsForRemodel(c *C, withComponents bool) {
 var nonReLinkKinds = []string{
 	"prepare-kernel-snap",
 	"copy-snap-data",
+	"prepare-profiles",
 	"setup-profiles",
 	"auto-connect",
 	"set-auto-aliases",
