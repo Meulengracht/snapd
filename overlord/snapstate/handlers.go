@@ -2518,7 +2518,7 @@ func (m *SnapManager) doLinkSnap(t *state.Task, _ *tomb.Tomb) (retErr error) {
 		var hasAutoConnect, hasSetupProfiles bool
 		for _, other := range t.Change().Tasks() {
 			// Check if this is auto-connect task for same snap and we it's part of the change with setup-profiles task
-			if other.Kind() == "auto-connect" || other.Kind() == "setup-profiles" {
+			if other.Kind() == "auto-connect" || other.Kind() == "setup-profiles" || other.Kind() == "generate-profiles" {
 				otherSnapsup, err := TaskSnapSetup(other)
 				if err != nil {
 					return err

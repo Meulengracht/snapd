@@ -598,9 +598,9 @@ func doInstall(st *state.State, snapst *SnapState, snapsup SnapSetup, compsups [
 		addTask(copyData)
 	}
 
-	// security
-	setupSecurity := st.NewTask("setup-profiles", fmt.Sprintf(i18n.G("Setup snap %q%s security profiles"), snapsup.InstanceName(), revisionStr))
-	addTask(setupSecurity)
+	// Insert the profiles task that will restore profiles if needed.
+	regenSecurity := st.NewTask("restore-profiles", fmt.Sprintf(i18n.G("Restore snap %q%s security profiles"), snapsup.InstanceName(), revisionStr))
+	addTask(regenSecurity)
 
 	// finalize (wrappers+current symlink)
 	//
@@ -632,6 +632,10 @@ func doInstall(st *state.State, snapst *SnapState, snapsup SnapSetup, compsups [
 	// performs some reboot-verification code.
 	autoConnect := st.NewTask("auto-connect", fmt.Sprintf(i18n.G("Automatically connect eligible plugs and slots of snap %q"), snapsup.InstanceName()))
 	addTask(autoConnect)
+
+	// security
+	setupSecurity := st.NewTask("generate-profiles", fmt.Sprintf(i18n.G("Setup snap %q%s security profiles"), snapsup.InstanceName(), revisionStr))
+	addTask(setupSecurity)
 
 	// setup aliases
 	setAutoAliases := st.NewTask("set-auto-aliases", fmt.Sprintf(i18n.G("Set automatic aliases for snap %q"), snapsup.InstanceName()))

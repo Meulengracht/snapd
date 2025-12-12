@@ -106,6 +106,13 @@ func Manager(s *state.State, hookManager *hookstate.HookManager, runner *state.T
 	addHandler("disconnect", m.doDisconnect, m.undoDisconnect)
 	addHandler("setup-profiles", m.doSetupProfiles, m.undoSetupProfiles)
 	addHandler("remove-profiles", m.doRemoveProfiles, m.doSetupProfiles)
+
+	// new-style profile generation tasks, one for do and one for undo,
+	// they are placed in different locations during a change, and thats why
+	// they are split like this
+	addHandler("generate-profiles", m.doSetupProfiles, nil)
+	addHandler("restore-profiles", m.doRestoreProfiles, m.undoSetupProfiles)
+
 	addHandler("discard-conns", m.doDiscardConns, m.undoDiscardConns)
 	addHandler("auto-connect", m.doAutoConnect, m.undoAutoConnect)
 	addHandler("auto-disconnect", m.doAutoDisconnect, nil)
