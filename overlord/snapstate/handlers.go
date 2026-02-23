@@ -5330,7 +5330,7 @@ func FindTaskMatchingKindAndSnap(tasks []*state.Task, kind string, instanceName 
 			continue
 		}
 
-		snapsup, _, err := snapSetupAndState(t)
+		snapsup, err := TaskSnapSetup(t)
 		if err != nil {
 			continue
 		}
