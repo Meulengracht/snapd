@@ -100,6 +100,11 @@ execute: |
     MATCH "${CERT_NAME}" < custom-certs.txt
     MATCH "accepted" < custom-certs.txt
     MATCH "${CERT_FP}" < custom-certs.txt
+
+    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
+    MATCH "${CERT_NAME}" < custom-cert.txt
+    MATCH "accepted" < custom-cert.txt
+    MATCH "${CERT_FP}" < custom-cert.txt
     cert_same_identity "${CUSTOM_CERT_PATH}" "${CERT_PEM}"
 
     echo "Switch state to blocked and verify merged db is updated"
@@ -117,6 +122,11 @@ execute: |
     MATCH "blocked" < custom-certs.txt
     MATCH "${CERT_FP}" < custom-certs.txt
 
+    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
+    MATCH "${CERT_NAME}" < custom-cert.txt
+    MATCH "blocked" < custom-cert.txt
+    MATCH "${CERT_FP}" < custom-cert.txt
+
     echo "Switch state back to accepted and verify merged db is updated again"
     snap set system "pki.certs.custom.${CERT_NAME}.state=accepted"
     test "$(count_links_to_cert "${ADDED_DIR}" "${CERT_NAME}")" -eq 1
@@ -129,6 +139,11 @@ execute: |
     MATCH "${CERT_NAME}" < custom-certs.txt
     MATCH "accepted" < custom-certs.txt
     MATCH "${CERT_FP}" < custom-certs.txt
+
+    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
+    MATCH "${CERT_NAME}" < custom-cert.txt
+    MATCH "accepted" < custom-cert.txt
+    MATCH "${CERT_FP}" < custom-cert.txt
 
     echo "Check custom certificate name validation"
     not snap set system "pki.certs.custom.${CERT_NAME}.name=///" 2>./err.txt

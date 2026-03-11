@@ -163,6 +163,26 @@ func (s *pkiCertsSuite) TestValidateCustomCertificateRequestUnexpectedField(c *C
 	c.Assert(err, ErrorMatches, `unexpected field "foo" in custom certificate change`)
 }
 
+func (s *pkiCertsSuite) TestValidateCustomCertificateRequestCannotSetCustomCertsObject(c *C) {
+	err := configcore.Run(coreDev, &mockConf{
+		state: s.state,
+		changes: map[string]any{
+			"pki.certs.custom": map[string]any{"cert1": "value"},
+		},
+	})
+	c.Assert(err, ErrorMatches, `cannot set "pki.certs.custom" directly`)
+}
+
+func (s *pkiCertsSuite) TestValidateCustomCertificateRequestFingerprintIsReadOnly(c *C) {
+	err := configcore.Run(coreDev, &mockConf{
+		state: s.state,
+		changes: map[string]any{
+			"pki.certs.custom.cert1.fingerprint": "some-fingerprint",
+		},
+	})
+	c.Assert(err, ErrorMatches, `cannot set "pki.certs.custom.cert1.fingerprint": field is read-only`)
+}
+
 func (s *pkiCertsSuite) TestHandleCustomCertificateAcceptedWritesFileAndSymlink(c *C) {
 	certPEM := makePKITestCertPEM(c, "accepted-cert")
 
@@ -347,6 +367,21 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateUsesStoredCont
 	assertSymlinkTarget(c, filepath.Join(pkiDir, "blocked", fingerprint+".crt"), "../cert-stateonly.crt")
 	c.Assert(filepath.Join(pkiDir, "cert-stateonly.crt"), testutil.FileEquals, string(certPEM))
 	assertCertificateDatabaseContains(c, certPEM, false)
+}
+
+func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateWithBrokenExistingCertFails(c *C) {
+	pkiDir := dirs.SnapdPKIV1Dir
+	c.Assert(os.WriteFile(filepath.Join(pkiDir, "cert-broken.crt"), []byte("not-a-certificate"), 0o644), IsNil)
+
+	cfg := &mockConf{
+		state: s.state,
+		changes: map[string]any{
+			"pki.certs.custom.cert-broken.state": "accepted",
+		},
+	}
+
+	err := configcore.Run(coreDev, cfg)
+	c.Assert(err, ErrorMatches, `cannot load existing certificate data for "cert-broken": cannot parse certificate "cert-broken": .*`)
 }
 
 func (s *pkiCertsSuite) TestValidateCustomCertificateRequestNewCertContentFirstPasses(c *C) {
@@ -572,6 +607,48 @@ func (s *pkiCertsSuite) TestHandleGetCustomCertificatesIncludesStateAndFingerpri
 	c.Check(certs[0].Name, Equals, "cert4")
 	c.Check(certs[0].Fingerprint, Equals, fingerprint)
 	c.Check(certs[0].State, Equals, certstate.CertificateStateAccepted)
+	c.Check(certs[0].Content, Equals, "")
+}
+
+func (s *pkiCertsSuite) TestHandleGetCustomCertificatesFiltersByName(c *C) {
+	cert1PEM := makePKITestCertPEM(c, "query-cert-1")
+	cert2PEM := makePKITestCertPEM(c, "query-cert-2")
+	fingerprint1 := certDigest(c, cert1PEM)
+	fingerprint2 := certDigest(c, cert2PEM)
+
+	pkiDir := dirs.SnapdPKIV1Dir
+	addedDir := filepath.Join(pkiDir, "added")
+	c.Assert(os.WriteFile(filepath.Join(pkiDir, "cert-a.crt"), cert1PEM, 0o644), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(pkiDir, "cert-b.crt"), cert2PEM, 0o644), IsNil)
+	c.Assert(os.Symlink("../cert-a.crt", filepath.Join(addedDir, fingerprint1+".crt")), IsNil)
+	c.Assert(os.Symlink("../cert-b.crt", filepath.Join(addedDir, fingerprint2+".crt")), IsNil)
+
+	res, err := configcore.HandleGetCustomCertificates("pki.certs.custom.cert-a")
+	c.Assert(err, IsNil)
+
+	certs, ok := res.(map[string]*certstate.CertificateInfo)
+	c.Assert(ok, Equals, true)
+	c.Assert(certs, HasLen, 1)
+
+	certInfo, ok := certs["cert-a"]
+	c.Assert(ok, Equals, true)
+	c.Check(certInfo.Name, Equals, "cert-a")
+	c.Check(certInfo.Fingerprint, Equals, fingerprint1)
+	c.Check(certInfo.State, Equals, certstate.CertificateStateAccepted)
+	c.Check(certInfo.Content, Equals, string(cert1PEM))
+}
+
+func (s *pkiCertsSuite) TestHandleGetCustomCertificatesFiltersByNameNotFound(c *C) {
+	certPEM := makePKITestCertPEM(c, "query-cert-missing")
+	pkiDir := dirs.SnapdPKIV1Dir
+	c.Assert(os.WriteFile(filepath.Join(pkiDir, "existing.crt"), certPEM, 0o644), IsNil)
+
+	res, err := configcore.HandleGetCustomCertificates("pki.certs.custom.missing")
+	c.Assert(err, IsNil)
+
+	certs, ok := res.(map[string]*certstate.CertificateInfo)
+	c.Assert(ok, Equals, true)
+	c.Check(certs, HasLen, 0)
 }
 
 func (s *pkiCertsSuite) TestParseCustomCertKey(c *C) {
@@ -589,10 +666,10 @@ func (s *pkiCertsSuite) TestParseCustomCertKeyCases(c *C) {
 		errMatch string
 	}{
 		{key: "pki.certs.custom", expName: "", expField: "", errMatch: ""},
-		{key: "network.proxy.http", expName: "", expField: "", errMatch: ""},
 		{key: "pki.certs.custom.certx", expName: "certx", expField: "", errMatch: ""},
 		{key: "pki.certs.custom.certx.state", expName: "certx", expField: "state", errMatch: ""},
 		{key: "pki.certs.custom.certx.state.extra", errMatch: `cannot parse custom certificate option "pki.certs.custom.certx.state.extra"`},
+		{key: "network.proxy.http", expName: "", expField: "", errMatch: `cannot parse custom certificate option "network.proxy.http"`},
 	}
 
 	for _, tc := range tests {

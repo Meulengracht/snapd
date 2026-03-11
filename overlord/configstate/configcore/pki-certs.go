@@ -21,6 +21,7 @@
 package configcore
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -42,9 +43,6 @@ func init() {
 // "pki.certs.custom.<name>[.<field>]"
 func parseCustomCertKey(key string) (name, field string, err error) {
 	if key == customCertPrefix {
-		return "", "", nil
-	}
-	if !strings.HasPrefix(key, customCertPrefix+".") {
 		return "", "", nil
 	}
 
@@ -77,7 +75,6 @@ type certificate struct {
 func gatherCertificates(tr RunTransaction) (map[string]certificate, error) {
 	certs := make(map[string]certificate)
 	changes := tr.Changes()
-
 	for _, change := range changes {
 		if !strings.HasPrefix(change, "core."+customCertPrefix) {
 			continue
@@ -99,7 +96,17 @@ func gatherCertificates(tr RunTransaction) (map[string]certificate, error) {
 		if existing, ok := certs[name]; ok {
 			cert = existing
 		} else {
+			// Load existing certificate data for the certificate if it exists,
+			// so that we can apply changes on top of it.
 			cert = certificate{Name: name}
+			info, err := certstate.CustomCertificateInfo(name)
+			if err == nil {
+				cert.State = info.State
+				cert.Content = info.Content
+				cert.HasContent = true
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("cannot load existing certificate data for %q: %v", name, err)
+			}
 		}
 
 		// retrieve the new value for the changed field and update the certificate in the map
@@ -242,8 +249,15 @@ func validateCustomCertificateRequest(tr RunTransaction) error {
 			return err
 		}
 
+		if name == "" && field == "" {
+			if key == customCertPrefix {
+				return fmt.Errorf("cannot set %q directly", key)
+			}
+			continue
+		}
+
 		// we only care about changes to fields, not the bare object
-		if name == "" || field == "" {
+		if field == "" {
 			continue
 		}
 
@@ -274,6 +288,8 @@ func validateCustomCertificateRequest(tr RunTransaction) error {
 			if !validCertName(v) {
 				return fmt.Errorf("invalid certificate name for %q: %q", key, v)
 			}
+		case "fingerprint":
+			return fmt.Errorf("cannot set %q: field is read-only", key)
 		default:
 			return fmt.Errorf("unexpected field %q in custom certificate change", field)
 		}
@@ -282,5 +298,32 @@ func validateCustomCertificateRequest(tr RunTransaction) error {
 }
 
 func handleGetCustomCertificates(key string) (any, error) {
-	return certstate.CustomCertificates()
+	infos, err := certstate.CustomCertificates()
+	if err != nil {
+		return nil, err
+	}
+
+	name, _, err := parseCustomCertKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if name == "" {
+		// When retrieving all certificates, let us not return the content,
+		// as it can be large.
+		for _, info := range infos {
+			info.Content = ""
+		}
+		return infos, nil
+	}
+
+	filtered := make(map[string]*certstate.CertificateInfo)
+	for _, info := range infos {
+		if info.Name == name {
+			filtered[name] = info
+			break
+		}
+	}
+
+	return filtered, nil
 }

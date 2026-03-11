@@ -457,24 +457,25 @@ type CertificateInfo struct {
 	Name        string `json:"name"`
 	Fingerprint string `json:"fingerprint"`
 	State       string `json:"state"`
+	Content     string `json:"content,omitempty"`
 }
 
-func certificateDigest(name, baseDir string) (string, error) {
+func certificateDataAndDigest(name, baseDir string) (string, string, error) {
 	certPath := certificatePathWithExtension(baseDir, name)
 	certBytes, err := os.ReadFile(certPath)
 	if err != nil {
-		return "", fmt.Errorf("cannot read certificate %q: %v", name, err)
+		return "", "", fmt.Errorf("cannot read certificate %q: %w", name, err)
 	}
 
 	cdata, err := ParseCertificateData(certBytes)
 	if err != nil {
-		return "", fmt.Errorf("cannot parse certificate %q: %v", name, err)
+		return "", "", fmt.Errorf("cannot parse certificate %q: %w", name, err)
 	}
-	return cdata.Digest, nil
+	return cdata.Digest, string(certBytes), nil
 }
 
 func certificateInfo(name, baseDir, addedDir, blockedDir string) (*CertificateInfo, error) {
-	digest, err := certificateDigest(name, baseDir)
+	digest, content, err := certificateDataAndDigest(name, baseDir)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +491,15 @@ func certificateInfo(name, baseDir, addedDir, blockedDir string) (*CertificateIn
 		Name:        name,
 		Fingerprint: digest,
 		State:       state,
+		Content:     content,
 	}, nil
+}
+
+func CustomCertificateInfo(name string) (*CertificateInfo, error) {
+	baseDir := dirs.SnapdPKIV1Dir
+	addedDir := filepath.Join(baseDir, "added")
+	blockedDir := filepath.Join(baseDir, "blocked")
+	return certificateInfo(name, baseDir, addedDir, blockedDir)
 }
 
 // CustomCertificates returns the list of custom certificates with their name, fingerprint and state.
