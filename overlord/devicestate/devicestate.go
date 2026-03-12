@@ -1113,9 +1113,9 @@ func sortNonEssentialRemodelTaskSetsBasesFirst(snaps []*asserts.ModelSnap) []*as
 }
 
 func shouldRegenerateCertificateDatabase(current, new *asserts.Model) bool {
-	// If the boot-base is being changed, then we should as that carry the
-	// system certificates. When the certificates are changed, the managed snapd
-	// database must be regenerated
+	// If the boot-base is being changed, then we should regenerate the cert db
+	// as that carry system certificates. When the certificates are changed,
+	// the managed snapd database must be regenerated
 
 	// When upgrading the base, and when the track is changed
 	if current.Base() != "" && new.Base() != "" {
