@@ -422,12 +422,6 @@ func AddForeignTaskHandlers(runner *state.TaskRunner, tracker ForeignTaskTracker
 		defer task.State().Unlock()
 		kind := task.Kind()
 		status := task.Status()
-		if kind == "setup-profiles" {
-			var prepareProfiles bool
-			if err := task.Get("prepare-profiles", &prepareProfiles); err == nil && prepareProfiles {
-				kind = "prepare-profiles"
-			}
-		}
 		snapsup, err := snapstate.TaskSnapSetup(task)
 		if err != nil {
 			return err
@@ -443,7 +437,6 @@ func AddForeignTaskHandlers(runner *state.TaskRunner, tracker ForeignTaskTracker
 
 		return tracker.ForeignTask(kind, status, snapsup, compsup)
 	}
-	runner.AddHandler("prepare-profiles", fakeHandler, fakeHandler)
 	runner.AddHandler("setup-profiles", fakeHandler, fakeHandler)
 	runner.AddHandler("auto-connect", fakeHandler, fakeHandler)
 	runner.AddHandler("auto-disconnect", fakeHandler, nil)
@@ -1725,7 +1718,7 @@ func (s *snapmgrTestSuite) testRevertRunThrough(c *C, refreshAppAwarenessUX bool
 			unlinkSkipBinaries: refreshAppAwarenessUX,
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(2),
 		},
@@ -2001,7 +1994,7 @@ func (s *snapmgrTestSuite) revertWithBase(c *C, expectedRev snap.Revision, expec
 				path: filepath.Join(dirs.SnapMountDir, "snap-core18-to-core22/7"),
 			},
 			{
-				op:    "prepare-profiles:Doing",
+				op:    "setup-profiles:Doing",
 				name:  "snap-core18-to-core22",
 				revno: snap.R(1),
 			},
@@ -2098,7 +2091,7 @@ func (s *snapmgrTestSuite) TestParallelInstanceRevertRunThrough(c *C) {
 			otherInstances: true,
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "some-snap_instance",
 			revno: snap.R(2),
 		},
@@ -2246,7 +2239,7 @@ func (s *snapmgrTestSuite) TestRevertToRevisionNewVersion(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(7),
 		},
@@ -2341,7 +2334,7 @@ func (s *snapmgrTestSuite) TestRevertTotalUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2382,7 +2375,7 @@ func (s *snapmgrTestSuite) TestRevertTotalUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/1"),
 		},
 		{
-			op:    "prepare-profiles:Undoing",
+			op:    "setup-profiles:Undoing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2460,7 +2453,7 @@ func (s *snapmgrTestSuite) TestRevertUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/2"),
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -2481,7 +2474,7 @@ func (s *snapmgrTestSuite) TestRevertUndoRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapMountDir, "some-snap/1"),
 		},
 		{
-			op:    "prepare-profiles:Undoing",
+			op:    "setup-profiles:Undoing",
 			name:  "some-snap",
 			revno: snap.R(1),
 		},
@@ -5973,7 +5966,7 @@ func (s *snapmgrTestSuite) TestTransitionCoreRunThrough(c *C) {
 			path: filepath.Join(dirs.SnapDataSaveDir, "core"),
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "core",
 			revno: snap.R(11),
 		},
@@ -8360,7 +8353,7 @@ func (s *snapmgrTestSuite) TestSnapdRefreshTasks(c *C) {
 			path: filepath.Join(dirs.SnapDataSaveDir, "snapd"),
 		},
 		{
-			op:    "prepare-profiles:Doing",
+			op:    "setup-profiles:Doing",
 			name:  "snapd",
 			revno: snap.R(11),
 		},
