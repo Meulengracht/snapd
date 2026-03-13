@@ -17611,7 +17611,7 @@ func (s *snapmgrTestSuite) TestUpdateTasksWithComponentsRemoved(c *C) {
 		"remove-aliases",
 		"unlink-current-snap",
 		"copy-snap-data",
-		"prepare-profiles",
+		"setup-profiles",
 		"link-snap",
 		"auto-connect",
 		"set-auto-aliases",
