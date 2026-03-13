@@ -495,6 +495,8 @@ func certificateInfo(name, baseDir, addedDir, blockedDir string) (*CertificateIn
 	}, nil
 }
 
+// CustomCertificateInfo returns the information about a custom certificate with
+// the given name, including its fingerprint, state and content.
 func CustomCertificateInfo(name string) (*CertificateInfo, error) {
 	baseDir := dirs.SnapdPKIV1Dir
 	addedDir := filepath.Join(baseDir, "added")
