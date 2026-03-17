@@ -103,7 +103,7 @@ execute: |
   test "$usaveSz" -eq 16777216
 
   # get core base version we should test from (core20 or core22)
-  BASE_VERSION="$(nested_get_version)"
+  BASE_VERSION="$(tests.nested show version)"
   BASE_NAME="core${BASE_VERSION}"
 
   # certificate DB generated on first boot should match core2* payload
