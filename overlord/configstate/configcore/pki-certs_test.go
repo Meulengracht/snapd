@@ -330,6 +330,30 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetWithoutPreviousFingerpri
 	c.Assert(err, IsNil)
 }
 
+func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetWithoutStoredFingerprintRemovesSymlink(c *C) {
+	certPEM := makePKITestCertPEM(c, "unset-no-stored-fp")
+	fingerprint := certDigest(c, certPEM)
+
+	pkiDir := dirs.SnapdPKIV1Dir
+	addedDir := filepath.Join(pkiDir, "added")
+	c.Assert(os.WriteFile(filepath.Join(pkiDir, "certNoStoredFp.crt"), certPEM, 0o644), IsNil)
+	c.Assert(os.Symlink("../certNoStoredFp.crt", filepath.Join(addedDir, fingerprint+".crt")), IsNil)
+
+	cfg := &mockConf{
+		state: s.state,
+		changes: map[string]any{
+			"pki.certs.custom.certNoStoredFp": nil,
+		},
+	}
+
+	err := configcore.Run(coreDev, cfg)
+	c.Assert(err, IsNil)
+
+	_, err = os.Stat(filepath.Join(pkiDir, "certNoStoredFp.crt"))
+	c.Check(os.IsNotExist(err), Equals, true)
+	assertSymlinkAbsent(c, filepath.Join(addedDir, fingerprint+".crt"))
+}
+
 func (s *pkiCertsSuite) TestHandleCustomCertificateContentOnlyDefaultsToAccepted(c *C) {
 	certPEM := makePKITestCertPEM(c, "content-default-accepted")
 

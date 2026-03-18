@@ -229,6 +229,16 @@ func handleCustomCertificateRequest(tr RunTransaction, opts *fsOnlyContext) erro
 				if err := certstate.RemoveCertificateSymlinks(fpOld); err != nil {
 					return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
 				}
+			} else {
+				info, err := certstate.CustomCertificateInfo(cert.Name)
+				switch {
+				case err == nil && info != nil && info.Fingerprint != "":
+					if err := certstate.RemoveCertificateSymlinks(info.Fingerprint); err != nil {
+						return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
+					}
+				case err != nil && !errors.Is(err, os.ErrNotExist):
+					return fmt.Errorf("cannot inspect custom certificate %q for cleanup: %v", cert.Name, err)
+				}
 			}
 
 			// Remove the certificate file, if it exists.
