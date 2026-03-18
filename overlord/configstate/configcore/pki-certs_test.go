@@ -407,7 +407,7 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateMissingExistin
 	}
 
 	err := configcore.Run(coreDev, cfg)
-	c.Assert(err, ErrorMatches, `cannot read existing certificate content for "cert-missing-content": .*`)
+	c.Assert(err, ErrorMatches, `cannot update state for custom certificate "cert-missing-content": certificate does not exist`)
 }
 
 func (s *pkiCertsSuite) TestValidateCustomCertificateRequestNewCertContentFirstPasses(c *C) {

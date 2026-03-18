@@ -242,15 +242,24 @@ func handleCustomCertificateRequest(tr RunTransaction, opts *fsOnlyContext) erro
 			}
 		case certstate.CertificateStateAccepted, certstate.CertificateStateBlocked:
 			contentForFingerprint := cert.Content
+
+			// If there has been no content set for the certificate in this transaction,
+			// there might already be existing certificate content on disk from a previous
+			// configuration.
 			if !cert.HasContent {
 				existingContent, err := os.ReadFile(certstate.CertificatePath(cert.Name))
 				if err != nil {
+					// If the file does not exist, then it means the user is trying to change some configuration
+					// of a certificate without first providing the certificate content. Reflect this specifically.
+					if errors.Is(err, os.ErrNotExist) {
+						return fmt.Errorf("cannot update state for custom certificate %q: certificate does not exist", cert.Name)
+					}
 					return fmt.Errorf("cannot read existing certificate content for %q: %v", cert.Name, err)
 				}
 				contentForFingerprint = string(existingContent)
 			}
 
-			// Calculate the new fingerprint, we need it for how we name the symlinks
+			// Calculate the fingerprint, we need it for how we name the symlinks
 			fp, err := certificateFingerprint(contentForFingerprint)
 			if err != nil {
 				return fmt.Errorf("cannot parse certificate content for %q: %v", cert.Name, err)

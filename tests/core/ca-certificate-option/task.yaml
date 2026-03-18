@@ -83,9 +83,7 @@ execute: |
     }
 
     echo "Add custom certificate with accepted state"
-    snap set system \
-        "pki.certs.custom.${CERT_NAME}.content=$(cat "${CERT_PEM}")" \
-        "pki.certs.custom.${CERT_NAME}.state=accepted"
+    snap set system "pki.certs.custom.${CERT_NAME}.content=$(cat "${CERT_PEM}")"
 
     test -f "$CUSTOM_CERT_PATH"
     test "$(count_links_to_cert "${ADDED_DIR}" "${CERT_NAME}")" -eq 1
