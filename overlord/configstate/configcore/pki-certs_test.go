@@ -1,6 +1,23 @@
 // -*- Mode: Go; indent-tabs-mode: t -*-
 //go:build !nomanagers
 
+/*
+ * Copyright (C) 2026 Canonical Ltd
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 3 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
+
 package configcore_test
 
 import (
@@ -281,8 +298,7 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetRemovesFilesAndClearsFin
 			"pki.certs.custom.cert3.fingerprint": fingerprint,
 		},
 		changes: map[string]any{
-			"pki.certs.custom.cert3.content": "",
-			"pki.certs.custom.cert3.state":   "unset",
+			"pki.certs.custom.cert3": nil,
 		},
 	}
 
@@ -296,49 +312,47 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetRemovesFilesAndClearsFin
 	assertSymlinkAbsent(c, filepath.Join(blockedDir, fingerprint+".crt"))
 
 	newFingerprint, ok := cfg.conf["pki.certs.custom.cert3.fingerprint"].(string)
-	c.Assert(ok, Equals, true)
+	c.Assert(ok, Equals, false)
 	c.Check(newFingerprint, Equals, "")
 
 	assertCertificateDatabaseContains(c, certPEM, false)
 }
 
-func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetWithoutPreviousFingerprintFails(c *C) {
+func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetWithoutPreviousFingerprintNoop(c *C) {
 	cfg := &mockConf{
 		state: s.state,
 		changes: map[string]any{
-			"pki.certs.custom.certUnsetNoFp.content": "",
-			"pki.certs.custom.certUnsetNoFp.state":   "unset",
+			"pki.certs.custom.certUnsetNoFp": nil,
 		},
 	}
 
 	err := configcore.Run(coreDev, cfg)
-	c.Assert(err, ErrorMatches, `cannot parse certificate content for "certUnsetNoFp": .*`)
+	c.Assert(err, IsNil)
 }
 
-func (s *pkiCertsSuite) TestHandleCustomCertificateUnsetWithContentForNewCert(c *C) {
-	certPEM := makePKITestCertPEM(c, "unset-with-content")
+func (s *pkiCertsSuite) TestHandleCustomCertificateContentOnlyDefaultsToAccepted(c *C) {
+	certPEM := makePKITestCertPEM(c, "content-default-accepted")
 
 	cfg := &mockConf{
 		state: s.state,
 		changes: map[string]any{
-			"pki.certs.custom.certUnsetNew.content": string(certPEM),
-			"pki.certs.custom.certUnsetNew.state":   "unset",
+			"pki.certs.custom.certDefaultAccepted.content": string(certPEM),
 		},
 	}
 
 	err := configcore.Run(coreDev, cfg)
 	c.Assert(err, IsNil)
 
-	certPath := filepath.Join(dirs.SnapdPKIV1Dir, "certUnsetNew.crt")
+	certPath := filepath.Join(dirs.SnapdPKIV1Dir, "certDefaultAccepted.crt")
 	c.Assert(certPath, testutil.FileEquals, string(certPEM))
 
-	fingerprint, ok := cfg.conf["pki.certs.custom.certUnsetNew.fingerprint"].(string)
+	fingerprint, ok := cfg.conf["pki.certs.custom.certDefaultAccepted.fingerprint"].(string)
 	c.Assert(ok, Equals, true)
 	c.Check(fingerprint, Not(Equals), "")
 
-	assertSymlinkAbsent(c, filepath.Join(dirs.SnapdPKIV1Dir, "added", fingerprint+".crt"))
+	assertSymlinkTarget(c, filepath.Join(dirs.SnapdPKIV1Dir, "added", fingerprint+".crt"), "../certDefaultAccepted.crt")
 	assertSymlinkAbsent(c, filepath.Join(dirs.SnapdPKIV1Dir, "blocked", fingerprint+".crt"))
-	assertCertificateDatabaseContains(c, certPEM, false)
+	assertCertificateDatabaseContains(c, certPEM, true)
 }
 
 func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateUsesStoredContent(c *C) {
@@ -382,6 +396,18 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateWithBrokenExis
 
 	err := configcore.Run(coreDev, cfg)
 	c.Assert(err, ErrorMatches, `cannot load existing certificate data for "cert-broken": cannot parse certificate "cert-broken": .*`)
+}
+
+func (s *pkiCertsSuite) TestHandleCustomCertificateStateOnlyUpdateMissingExistingContentFails(c *C) {
+	cfg := &mockConf{
+		state: s.state,
+		changes: map[string]any{
+			"pki.certs.custom.cert-missing-content.state": "accepted",
+		},
+	}
+
+	err := configcore.Run(coreDev, cfg)
+	c.Assert(err, ErrorMatches, `cannot read existing certificate content for "cert-missing-content": .*`)
 }
 
 func (s *pkiCertsSuite) TestValidateCustomCertificateRequestNewCertContentFirstPasses(c *C) {
@@ -512,7 +538,7 @@ func (s *pkiCertsSuite) TestHandleCustomCertificateRenameMovesCertAndFingerprint
 	assertSymlinkTarget(c, filepath.Join(addedDir, newFingerprint+".crt"), "../newcert.crt")
 
 	oldCfgFingerprint, ok := base.conf["pki.certs.custom.oldcert.fingerprint"].(string)
-	c.Assert(ok, Equals, true)
+	c.Assert(ok, Equals, false)
 	c.Check(oldCfgFingerprint, Equals, "")
 
 	newCfgFingerprint, ok := base.conf["pki.certs.custom.newcert.fingerprint"].(string)

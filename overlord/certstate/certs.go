@@ -460,7 +460,7 @@ type CertificateInfo struct {
 	Content     string `json:"content,omitempty"`
 }
 
-func certificateDataAndDigest(name, baseDir string) (string, string, error) {
+func certificateDigestAndContent(name, baseDir string) (digest string, content string, err error) {
 	certPath := certificatePathWithExtension(baseDir, name)
 	certBytes, err := os.ReadFile(certPath)
 	if err != nil {
@@ -475,7 +475,7 @@ func certificateDataAndDigest(name, baseDir string) (string, string, error) {
 }
 
 func certificateInfo(name, baseDir, addedDir, blockedDir string) (*CertificateInfo, error) {
-	digest, content, err := certificateDataAndDigest(name, baseDir)
+	digest, content, err := certificateDigestAndContent(name, baseDir)
 	if err != nil {
 		return nil, err
 	}

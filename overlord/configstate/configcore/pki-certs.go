@@ -2,7 +2,7 @@
 //go:build !nomanagers
 
 /*
- * Copyright (C) 2020 Canonical Ltd
+ * Copyright (C) 2026 Canonical Ltd
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 3 as
@@ -72,6 +72,29 @@ type certificate struct {
 	HasContent bool
 }
 
+func maybeExistingCertificate(name string, certs map[string]certificate) (certificate, error) {
+	var cert certificate
+	if existing, ok := certs[name]; ok {
+		cert = existing
+	} else {
+		// Load existing certificate data for the certificate if it exists,
+		// so that we can apply changes on top of it.
+		cert = certificate{
+			Name:  name,
+			State: certstate.CertificateStateAccepted,
+		}
+		info, err := certstate.CustomCertificateInfo(name)
+		if err == nil {
+			cert.State = info.State
+			cert.Content = info.Content
+			cert.HasContent = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return cert, fmt.Errorf("cannot load existing certificate data for %q: %v", name, err)
+		}
+	}
+	return cert, nil
+}
+
 func gatherCertificates(tr RunTransaction) (map[string]certificate, error) {
 	certs := make(map[string]certificate)
 	changes := tr.Changes()
@@ -86,27 +109,35 @@ func gatherCertificates(tr RunTransaction) (map[string]certificate, error) {
 			return nil, err
 		}
 
-		// we only care about changes to fields, not the bare object
-		if name == "" || field == "" {
+		// Name of a certificate must be provided
+		if name == "" {
+			continue
+		}
+
+		// If field is empty, assume that we are unsetting the certificate
+		if field == "" {
+			var v any
+			if err := tr.Get("core", key, &v); err != nil && !config.IsNoOption(err) {
+				return nil, err
+			}
+			if v != nil {
+				return nil, fmt.Errorf("cannot set %q directly", key)
+			}
+
+			// Unsetting a certificate object removes the certificate.
+			certs[name] = certificate{
+				Name:       name,
+				Content:    "",
+				State:      certstate.CertificateStateUnset,
+				HasContent: true,
+			}
 			continue
 		}
 
 		// ensure the certificate is in the map so that we can apply all changes to it together later
-		var cert certificate
-		if existing, ok := certs[name]; ok {
-			cert = existing
-		} else {
-			// Load existing certificate data for the certificate if it exists,
-			// so that we can apply changes on top of it.
-			cert = certificate{Name: name}
-			info, err := certstate.CustomCertificateInfo(name)
-			if err == nil {
-				cert.State = info.State
-				cert.Content = info.Content
-				cert.HasContent = true
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("cannot load existing certificate data for %q: %v", name, err)
-			}
+		cert, err := maybeExistingCertificate(name, certs)
+		if err != nil {
+			return nil, err
 		}
 
 		// retrieve the new value for the changed field and update the certificate in the map
@@ -119,6 +150,10 @@ func gatherCertificates(tr RunTransaction) (map[string]certificate, error) {
 		case "content":
 			cert.Content = v
 			cert.HasContent = true
+			if v == "" {
+				// Indicate we are removing the certificate
+				cert.State = certstate.CertificateStateUnset
+			}
 		case "state":
 			cert.State = v
 		case "name":
@@ -155,6 +190,17 @@ func certificateFingerprint(certContent string) (string, error) {
 	return cdata.Digest, nil
 }
 
+func ensureCertificateState(fp string, cert certificate) error {
+	if err := certstate.RemoveCertificateSymlinks(fp); err != nil {
+		return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
+	}
+
+	if err := certstate.SetCertificateState(cert.Name, fp, cert.State); err != nil {
+		return fmt.Errorf("cannot set state for custom certificate %q: %v", cert.Name, err)
+	}
+	return nil
+}
+
 func handleCustomCertificateRequest(tr RunTransaction, opts *fsOnlyContext) error {
 	certs, err := gatherCertificates(tr)
 	if err != nil {
@@ -176,64 +222,65 @@ func handleCustomCertificateRequest(tr RunTransaction, opts *fsOnlyContext) erro
 			return err
 		}
 
-		// if content was explicitly set to empty, remove the certificate itself
-		if cert.HasContent && cert.Content == "" {
+		switch cert.State {
+		case certstate.CertificateStateUnset:
+			// Unsetting the certificate, we want to remove it.
+			if fpOld != "" {
+				if err := certstate.RemoveCertificateSymlinks(fpOld); err != nil {
+					return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
+				}
+			}
+
+			// Remove the certificate file, if it exists.
 			if err := certstate.RemoveCertificate(cert.Name); err != nil {
 				return fmt.Errorf("cannot remove custom certificate %q: %v", cert.Name, err)
 			}
-		}
 
-		if fpOld != "" {
-			if err := certstate.RemoveCertificateSymlinks(fpOld); err != nil {
-				return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
-			}
-		}
-
-		// If state is unset, ignore
-		// Clear the fingerprint if the state is unset, as for that case the
-		// certificate will be unavailable.
-		if cert.State == certstate.CertificateStateUnset && fpOld != "" {
-			if err := tr.Set("core", fpKey, ""); err != nil {
+			// Clear the certificate fingerprint in the config
+			if err := tr.Set("core", fpKey, nil); err != nil {
 				return fmt.Errorf("cannot clear fingerprint for custom certificate %q: %v", cert.Name, err)
 			}
-			continue
-		}
+		case certstate.CertificateStateAccepted, certstate.CertificateStateBlocked:
+			contentForFingerprint := cert.Content
+			if !cert.HasContent {
+				existingContent, err := os.ReadFile(certstate.CertificatePath(cert.Name))
+				if err != nil {
+					return fmt.Errorf("cannot read existing certificate content for %q: %v", cert.Name, err)
+				}
+				contentForFingerprint = string(existingContent)
+			}
 
-		contentForFingerprint := cert.Content
-		if !cert.HasContent {
-			existingContent, err := os.ReadFile(certstate.CertificatePath(cert.Name))
+			// Calculate the new fingerprint, we need it for how we name the symlinks
+			fp, err := certificateFingerprint(contentForFingerprint)
 			if err != nil {
-				return fmt.Errorf("cannot read existing certificate content for %q: %v", cert.Name, err)
+				return fmt.Errorf("cannot parse certificate content for %q: %v", cert.Name, err)
 			}
-			contentForFingerprint = string(existingContent)
-		}
 
-		// Calculate the new fingerprint, we need it for how we name the symlinks
-		fp, err := certificateFingerprint(contentForFingerprint)
-		if err != nil {
-			return fmt.Errorf("cannot parse certificate content for %q: %v", cert.Name, err)
-		}
+			if cert.HasContent {
+				// Clear any old symlinks if fingerprint changed
+				if err := certstate.RemoveCertificateSymlinks(fpOld); err != nil {
+					return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
+				}
 
-		if cert.HasContent {
-			if err := certstate.WriteCertificate(cert.Name, cert.Content); err != nil {
-				return fmt.Errorf("cannot write custom certificate %q: %v", cert.Name, err)
+				// Ensure new symlinks
+				if err := ensureCertificateState(fp, cert); err != nil {
+					return err
+				}
+
+				if err := certstate.WriteCertificate(cert.Name, cert.Content); err != nil {
+					return fmt.Errorf("cannot write custom certificate %q: %v", cert.Name, err)
+				}
 			}
-		}
 
-		if err := certstate.RemoveCertificateSymlinks(fp); err != nil {
-			return fmt.Errorf("cannot remove existing symlinks for custom certificate %q: %v", cert.Name, err)
-		}
+			// Update the certificate fingerprint in the config
+			if err := tr.Set("core", fpKey, fp); err != nil {
+				return fmt.Errorf("cannot update fingerprint for custom certificate %q: %v", cert.Name, err)
+			}
 
-		if err := certstate.SetCertificateState(cert.Name, fp, cert.State); err != nil {
-			return fmt.Errorf("cannot set state for custom certificate %q: %v", cert.Name, err)
-		}
-
-		// Update the certificate fingerprint in the config
-		if err := tr.Set("core", fpKey, fp); err != nil {
-			return fmt.Errorf("cannot update fingerprint for custom certificate %q: %v", cert.Name, err)
+		default:
+			return fmt.Errorf("invalid state value for custom certificate %q: %q", cert.Name, cert.State)
 		}
 	}
-
 	return certstate.GenerateCertificateDatabase()
 }
 
@@ -256,8 +303,16 @@ func validateCustomCertificateRequest(tr RunTransaction) error {
 			continue
 		}
 
-		// we only care about changes to fields, not the bare object
 		if field == "" {
+			var v any
+			if err := tr.Get("core", key, &v); err != nil && !config.IsNoOption(err) {
+				return err
+			}
+			if v != nil {
+				return fmt.Errorf("cannot set %q directly", key)
+			}
+
+			// Unsetting pki.certs.custom.<name> is the supported removal path.
 			continue
 		}
 
@@ -279,7 +334,7 @@ func validateCustomCertificateRequest(tr RunTransaction) error {
 			}
 		case "state":
 			switch v {
-			case certstate.CertificateStateUnset, certstate.CertificateStateAccepted, certstate.CertificateStateBlocked:
+			case certstate.CertificateStateAccepted, certstate.CertificateStateBlocked:
 				// thats ok
 			default:
 				return fmt.Errorf("invalid state value for %q: %q", key, v)

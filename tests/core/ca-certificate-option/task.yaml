@@ -2,7 +2,7 @@ summary: Check custom CA certificate options
 
 details: |
     Verify the pki.certs.custom.* system options.
-    The test adds a custom certificate, checks it appears in snapd merged
+    The test adds a custom certificate, checks that it appears in snapd merged
     certificate database, toggles state between accepted and blocked, and
     validates certificate name restrictions.
 
@@ -12,11 +12,9 @@ environment:
     CERT_NAME: spreadcustomcert
 
 restore: |
-    snap set system "pki.certs.custom.${CERT_NAME}.state=unset" || true
+    snap unset system "pki.certs.custom.${CERT_NAME}" || true
 
 execute: |
-    set -eu
-
     CERT_PEM="$(mktemp)"
     CERT_KEY="$(mktemp)"
 
@@ -25,6 +23,9 @@ execute: |
     ADDED_DIR="$PKI_BASE_DIR/added"
     BLOCKED_DIR="$PKI_BASE_DIR/blocked"
     CA_CERTIFICATES_DB="$PKI_BASE_DIR/merged/ca-certificates.crt"
+
+    # Ensure no pre-existing custom certificate
+    snap unset system "pki.certs.custom.${CERT_NAME}" || true
 
     # Build a temporary self-signed certificate to use as custom CA content.
     openssl req -x509 -newkey rsa:2048 -nodes -sha256 \
@@ -96,15 +97,13 @@ execute: |
     echo "Check custom certificate list/details retrieval when accepted"
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get system pki.certs.custom > custom-certs.txt
-    MATCH "${CERT_NAME}" < custom-certs.txt
-    MATCH "accepted" < custom-certs.txt
-    MATCH "${CERT_FP}" < custom-certs.txt
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^accepted$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
 
-    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
-    MATCH "${CERT_NAME}" < custom-cert.txt
-    MATCH "accepted" < custom-cert.txt
-    MATCH "${CERT_FP}" < custom-cert.txt
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^accepted$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.fingerprint' | MATCH "^${CERT_FP}$"
     cert_same_identity "${CUSTOM_CERT_PATH}" "${CERT_PEM}"
 
     echo "Switch state to blocked and verify merged db is updated"
@@ -117,15 +116,13 @@ execute: |
     echo "Check custom certificate list/details retrieval when blocked"
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get system pki.certs.custom > custom-certs.txt
-    MATCH "${CERT_NAME}" < custom-certs.txt
-    MATCH "blocked" < custom-certs.txt
-    MATCH "${CERT_FP}" < custom-certs.txt
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^blocked$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
 
-    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
-    MATCH "${CERT_NAME}" < custom-cert.txt
-    MATCH "blocked" < custom-cert.txt
-    MATCH "${CERT_FP}" < custom-cert.txt
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^blocked$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.fingerprint' | MATCH "^${CERT_FP}$"
 
     echo "Switch state back to accepted and verify merged db is updated again"
     snap set system "pki.certs.custom.${CERT_NAME}.state=accepted"
@@ -135,21 +132,25 @@ execute: |
 
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get system pki.certs.custom > custom-certs.txt
-    MATCH "${CERT_NAME}" < custom-certs.txt
-    MATCH "accepted" < custom-certs.txt
-    MATCH "${CERT_FP}" < custom-certs.txt
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^accepted$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
 
-    snap get system "pki.certs.custom.${CERT_NAME}" > custom-cert.txt
-    MATCH "${CERT_NAME}" < custom-cert.txt
-    MATCH "accepted" < custom-cert.txt
-    MATCH "${CERT_FP}" < custom-cert.txt
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^accepted$"
+    snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.fingerprint' | MATCH "^${CERT_FP}$"
 
     echo "Check custom certificate name validation"
     not snap set system "pki.certs.custom.${CERT_NAME}.name=///" 2>./err.txt
     MATCH 'invalid certificate name for "pki.certs.custom.spreadcustomcert.name": "///"' < ./err.txt
 
-    # Invalid rename must not alter current accepted state of this certificate.
-    test "$(count_links_to_cert "${ADDED_DIR}" "${CERT_NAME}")" -eq 1
+    echo "Unset custom certificate object to remove the certificate"
+    snap unset system "pki.certs.custom.${CERT_NAME}"
+    test ! -f "$CUSTOM_CERT_PATH"
+    test "$(count_links_to_cert "${ADDED_DIR}" "${CERT_NAME}")" -eq 0
     test "$(count_links_to_cert "${BLOCKED_DIR}" "${CERT_NAME}")" -eq 0
-    cert_in_bundle "${CERT_PEM}" "${CA_CERTIFICATES_DB}"
+    not cert_in_bundle "${CERT_PEM}" "${CA_CERTIFICATES_DB}"
+
+    # After object unset, no links should remain.
+    test "$(count_links_to_cert "${ADDED_DIR}" "${CERT_NAME}")" -eq 0
+    test "$(count_links_to_cert "${BLOCKED_DIR}" "${CERT_NAME}")" -eq 0
