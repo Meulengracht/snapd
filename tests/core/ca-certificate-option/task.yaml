@@ -15,6 +15,10 @@ restore: |
     snap unset system "pki.certs.custom.${CERT_NAME}" || true
 
 execute: |
+    # Shellcheck triggers on gojq --arg expressions, disable this for this test file.
+    # SC2016: Expressions don't expand in single quotes, use double quotes for that.
+    # shellcheck disable=SC2016
+
     CERT_PEM="$(mktemp)"
     CERT_KEY="$(mktemp)"
 
