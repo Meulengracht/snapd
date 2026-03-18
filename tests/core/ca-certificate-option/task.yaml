@@ -97,9 +97,9 @@ execute: |
     echo "Check custom certificate list/details retrieval when accepted"
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^accepted$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].name" | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].state" | MATCH "^accepted$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].fingerprint" | MATCH "^${CERT_FP}$"
 
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^accepted$"
@@ -116,9 +116,9 @@ execute: |
     echo "Check custom certificate list/details retrieval when blocked"
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^blocked$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].name" | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].state" | MATCH "^blocked$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].fingerprint" | MATCH "^${CERT_FP}$"
 
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^blocked$"
@@ -132,9 +132,9 @@ execute: |
 
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].name' | MATCH "^${CERT_NAME}$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].state' | MATCH "^accepted$"
-    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" '.[ $name ].fingerprint' | MATCH "^${CERT_FP}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].name" | MATCH "^${CERT_NAME}$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].state" | MATCH "^accepted$"
+    snap get -d system pki.certs.custom | gojq -r --arg name "${CERT_NAME}" ".[ \$name ].fingerprint" | MATCH "^${CERT_FP}$"
 
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.name' | MATCH "^${CERT_NAME}$"
     snap get -d system "pki.certs.custom.${CERT_NAME}" | gojq -r '.state' | MATCH "^accepted$"
