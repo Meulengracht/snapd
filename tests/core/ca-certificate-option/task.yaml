@@ -15,10 +15,6 @@ restore: |
     snap unset system "pki.certs.custom.${CERT_NAME}" || true
 
 execute: |
-    # Shellcheck triggers on gojq --arg expressions, disable this for this test file.
-    # SC2016: Expressions don't expand in single quotes, use double quotes for that.
-    # shellcheck disable=SC2016
-
     CERT_PEM="$(mktemp)"
     CERT_KEY="$(mktemp)"
 
@@ -99,14 +95,26 @@ execute: |
     echo "Check custom certificate list/details retrieval when accepted"
     CERT_FP="$(cert_fingerprint_from_links "${CERT_NAME}")"
     test -n "${CERT_FP}"
+
+    # Shellcheck triggers on gojq --arg expressions, disable this for the next statements.
+    # SC2016: Expressions don't expand in single quotes, use double quotes for that.
+
     snap get -d system pki.certs.custom > ./output.txt
+
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^accepted$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
 
     snap get -d system "pki.certs.custom.${CERT_NAME}" > ./output.txt
+
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^accepted$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
     cert_same_identity "${CUSTOM_CERT_PATH}" "${CERT_PEM}"
 
@@ -122,13 +130,19 @@ execute: |
     test -n "${CERT_FP}"
     
     snap get -d system pki.certs.custom > ./output.txt
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^blocked$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
     
     snap get -d system "pki.certs.custom.${CERT_NAME}" > ./output.txt
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^blocked$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
 
     echo "Switch state back to accepted and verify merged db is updated again"
@@ -141,13 +155,21 @@ execute: |
     test -n "${CERT_FP}"
     
     snap get -d system pki.certs.custom > ./output.txt
+    
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^accepted$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" '.[]  | select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
 
     snap get -d system "pki.certs.custom.${CERT_NAME}" > ./output.txt
+
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].name' ./output.txt | MATCH "^${CERT_NAME}$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].state' ./output.txt | MATCH "^accepted$"
+    # shellcheck disable=SC2016
     gojq -r --arg name "${CERT_NAME}" 'select(.[] | .name == $name) | .[].fingerprint' ./output.txt | MATCH "^${CERT_FP}$"
 
     echo "Check custom certificate name validation"
