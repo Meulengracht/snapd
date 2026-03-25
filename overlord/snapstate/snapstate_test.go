@@ -9807,6 +9807,13 @@ func (s *snapmgrTestSuite) TestResolveValidationSetsEnforcementErrorBaseOrdering
 	s.testResolveValidationSetsEnforcementErrorComponents(c, opts)
 }
 
+// Regression test for validation-set enforcement ordering when snapd and app
+// snaps are refreshed together.
+//
+// This test exists because older snapd had a task-set chaining bug where empty
+// intermediate task-set groups could break dependency propagation between
+// non-empty groups. In that case, apps could miss the expected dependency on
+// snapd and run concurrently with a snapd refresh.
 func (s *snapmgrTestSuite) TestResolveValidationSetsEnforcementErrorSnapdAndTwoAppsOrdering(c *C) {
 	s.AddCleanup(snapstate.MockProcessDelayedSecurityBackendEffects(func(st *state.State, lanes []int, joinLane int) (ts *state.TaskSet) {
 		panic("unexpected call")
