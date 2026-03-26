@@ -215,24 +215,14 @@ func readDigests(dir string) ([]string, error) {
 	return digests, nil
 }
 
-// generateCACertificates generates the ca-certificates.crt to the output path
-// The ca-certificates.crt is a concatenation of all the certs in the
-// output path.
-func generateCACertificates(certs *certificates, outputPath string) error {
-	certsPath := filepath.Join(outputPath, "ca-certificates.crt")
-	certsFile, err := os.Create(certsPath)
-	if err != nil {
-		return fmt.Errorf("cannot create ca-certificates.crt: %v", err)
-	}
-	defer certsFile.Close()
-
+func writeUniqueCACertificates(certs *certificates, out *os.File) error {
 	copyOne := func(from string) error {
 		inf, err := os.Open(from)
 		if err != nil {
 			return err
 		}
 		defer inf.Close()
-		if _, err := io.Copy(certsFile, inf); err != nil {
+		if _, err := io.Copy(out, inf); err != nil {
 			return err
 		}
 		return nil
@@ -260,6 +250,41 @@ func generateCACertificates(certs *certificates, outputPath string) error {
 		}
 		digests[cert.Digest] = true
 	}
+	return nil
+}
+
+// generateCACertificates generates the ca-certificates.crt to the output path
+// The ca-certificates.crt is a concatenation of all the certs in the
+// output path.
+func generateCACertificates(certs *certificates, outputPath string) error {
+	tmpFile, err := os.CreateTemp(outputPath, "ca-certificates.crt.tmp-")
+	if err != nil {
+		return fmt.Errorf("cannot create temporary ca-certificates.crt: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		// maybe already closed, ignore error
+		tmpFile.Close()
+
+		// but let us log any removal error
+		if err := os.Remove(tmpPath); err != nil {
+			logger.Noticef("Failed to remove temporary ca-certificates.crt: %v", err)
+		}
+	}()
+
+	if err := writeUniqueCACertificates(certs, tmpFile); err != nil {
+		return err
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("cannot close temporary ca-certificates.crt: %v", err)
+	}
+
+	certsPath := filepath.Join(outputPath, "ca-certificates.crt")
+	if err := osutil.AtomicRename(tmpPath, certsPath); err != nil {
+		return fmt.Errorf("cannot atomically replace ca-certificates.crt: %v", err)
+	}
+
 	return nil
 }
 
