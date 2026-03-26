@@ -215,7 +215,7 @@ func readDigests(dir string) ([]string, error) {
 	return digests, nil
 }
 
-func writeUniqueCACertificates(certs *certificates, out *os.File) error {
+func writeUniqueCACertificates(certs *certificates, out io.Writer) error {
 	copyOne := func(from string) error {
 		inf, err := os.Open(from)
 		if err != nil {
@@ -257,34 +257,20 @@ func writeUniqueCACertificates(certs *certificates, out *os.File) error {
 // The ca-certificates.crt is a concatenation of all the certs in the
 // output path.
 func generateCACertificates(certs *certificates, outputPath string) error {
-	tmpFile, err := os.CreateTemp(outputPath, "ca-certificates.crt.tmp-")
+	certsPath := filepath.Join(outputPath, "ca-certificates.crt")
+	tmpFile, err := osutil.NewAtomicFile(certsPath, 0o644, 0, osutil.NoChown, osutil.NoChown)
 	if err != nil {
 		return fmt.Errorf("cannot create temporary ca-certificates.crt: %v", err)
 	}
-	tmpPath := tmpFile.Name()
-	defer func() {
-		// maybe already closed, ignore error
-		tmpFile.Close()
-
-		// but let us log any removal error
-		if err := os.Remove(tmpPath); err != nil {
-			logger.Noticef("Failed to remove temporary ca-certificates.crt: %v", err)
-		}
-	}()
+	defer tmpFile.Cancel()
 
 	if err := writeUniqueCACertificates(certs, tmpFile); err != nil {
 		return err
 	}
 
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("cannot close temporary ca-certificates.crt: %v", err)
-	}
-
-	certsPath := filepath.Join(outputPath, "ca-certificates.crt")
-	if err := osutil.AtomicRename(tmpPath, certsPath); err != nil {
+	if err := tmpFile.Commit(); err != nil {
 		return fmt.Errorf("cannot atomically replace ca-certificates.crt: %v", err)
 	}
-
 	return nil
 }
 
