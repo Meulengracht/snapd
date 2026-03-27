@@ -57,23 +57,14 @@ execute: |
 
     # Refreshing a non-model base should not request update-cert-db.
     if [ "$SPREAD_REBOOT" -eq 0 ]; then
-        snap download "$other_base" --edge
+        snap download "$other_base" --edge --basename "$other_base"
 
         # Create two distinct unasserted payloads to force an update.
-        cp "$(ls ${other_base}_*.snap)" "${other_base}.first.snap"
-        cp "$(ls ${other_base}_*.snap)" "${other_base}.second.snap"
-        printf '\0' >> "${other_base}.first.snap"
-        printf '\0' >> "${other_base}.second.snap"
+        printf '\0' >> "${other_base}.snap"
 
-        # First install of non-model base.
-        snap install "${other_base}.first.snap" --dangerous --no-wait > install-change-id
+        # Refresh the snap
+        snap install "${other_base}.snap" --dangerous --no-wait > install-change-id
         change_id="$(cat install-change-id)"
-        test -n "$change_id"
-        wait_and_verify_change "$change_id"
-
-        # Update the same non-model base from local unasserted payload.
-        snap install "${other_base}.second.snap" --dangerous --no-wait > refresh-change-id
-        change_id="$(cat refresh-change-id)"
         test -n "$change_id"
         wait_and_verify_change "$change_id"
 
