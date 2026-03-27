@@ -1764,6 +1764,17 @@ func maybeSwitchSnapMetadataTaskSet(st *state.State, snapsup SnapSetup, snapst S
 		tasks = append(tasks, toggle)
 	}
 
+	// Channel/cohort switches for the model base must also refresh the
+	// certificate database. Remodel has its own explicit scheduling.
+	if (switchChannel || switchCohortKey) &&
+		ShouldScheduleUpdateCertDBForRefresh(opts.DeviceCtx, snapst.IsInstalled(), snapsup.Type, snapsup.InstanceName()) {
+		updateCertDB := st.NewTask("update-cert-db", i18n.G("Update certificate database"))
+		for _, prev := range tasks {
+			updateCertDB.WaitFor(prev)
+		}
+		tasks = append(tasks, updateCertDB)
+	}
+
 	ts := state.NewTaskSet(tasks...)
 	if snapsupTask != nil {
 		ts.MarkEdge(snapsupTask, SnapSetupEdge)

@@ -86,6 +86,11 @@ func (m *CertManager) Ensure() error {
 }
 
 func (m *CertManager) doUpdateCertificateDatabase(_ *state.Task, _ *tomb.Tomb) error {
+	if exists, isDir, err := osutil.DirExists(dirs.SystemCertsDir); !exists || !isDir || err != nil {
+		logger.Debugf("/etc/ssl/certs is not available on this system, skipping certificate database update")
+		return nil
+	}
+
 	return GenerateCertificateDatabase()
 }
 
