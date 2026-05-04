@@ -1114,6 +1114,32 @@ func sortNonEssentialRemodelTaskSetsBasesFirst(snaps []*asserts.ModelSnap) []*as
 	return sorted
 }
 
+// sortAssertSnapsByRefreshOrder sorts the essentials snaps into the order
+// they should be in for refresh/installs. The order is decsribed in
+// essentialSnapsRestartOrder in overlord/snapstate/reboot.go
+func sortAssertSnapsByRefreshOrder(snaps []*asserts.ModelSnap) []*asserts.ModelSnap {
+	sorted := append([]*asserts.ModelSnap(nil), snaps...)
+
+	orderOfType := func(snapType string) int {
+		switch snap.Type(snapType) {
+		case snap.TypeSnapd:
+			return 0
+		case snap.TypeBase, snap.TypeOS:
+			return 1
+		case snap.TypeGadget:
+			return 2
+		case snap.TypeKernel:
+			return 3
+		}
+		return 4
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return orderOfType(sorted[i].SnapType) < orderOfType(sorted[j].SnapType)
+	})
+	return sorted
+}
+
 func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Model,
 	deviceCtx snapstate.DeviceContext, fromChange string, opts RemodelOptions) ([]*state.TaskSet, error) {
 
@@ -1155,12 +1181,8 @@ func remodelTasks(ctx context.Context, st *state.State, current, new *asserts.Mo
 		return nil, err
 	}
 
-	// TODO: this order is not correct, and needs to be changed to match the
-	// order that is described in the comment on essentialSnapsRestartOrder in
-	// overlord/snapstate/reboot.go
-	//
-	// In the order: kernel, boot base, gadget
-	for _, modelSnap := range new.EssentialSnaps() {
+	orderedEssentialSnaps := sortAssertSnapsByRefreshOrder(new.EssentialSnaps())
+	for _, modelSnap := range orderedEssentialSnaps {
 		if modelSnap.SnapType == "snapd" {
 			// Already handled
 			continue
