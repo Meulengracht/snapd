@@ -1115,8 +1115,9 @@ func sortNonEssentialRemodelTaskSetsBasesFirst(snaps []*asserts.ModelSnap) []*as
 }
 
 // sortAssertSnapsByRefreshOrder sorts the essentials snaps into the order
-// they should be in for refresh/installs. The order is decsribed in
-// essentialSnapsRestartOrder in overlord/snapstate/reboot.go
+// they should be in for a remodel. One difference from the regular refreshes
+// is to avoid triggering a rollback error as the new base-snap might not be
+// the one booted prior to the gadget and kernel being installed.
 func sortAssertSnapsByRefreshOrder(snaps []*asserts.ModelSnap) []*asserts.ModelSnap {
 	sorted := append([]*asserts.ModelSnap(nil), snaps...)
 
@@ -1124,11 +1125,11 @@ func sortAssertSnapsByRefreshOrder(snaps []*asserts.ModelSnap) []*asserts.ModelS
 		switch snap.Type(snapType) {
 		case snap.TypeSnapd:
 			return 0
-		case snap.TypeBase, snap.TypeOS:
-			return 1
 		case snap.TypeGadget:
-			return 2
+			return 1
 		case snap.TypeKernel:
+			return 2
+		case snap.TypeBase, snap.TypeOS:
 			return 3
 		}
 		return 4
