@@ -391,6 +391,14 @@ func shouldScheduleUpdateCertDBForRefresh(instanceName string, snapType snap.Typ
 }
 
 func (sc *snapInstallChoreographer) AfterLinkSnapAndPostReboot(st *state.State, s *taskChainSpan, ic installContext) ([]*state.Task, error) {
+	if sc.snapst.IsInstalled() && sc.snapsup.Type == snap.TypeSnapd && ic.DeviceCtx.HasModeenv() && ic.DeviceCtx.RunMode() {
+		checkSnapdReseal := st.NewTask("check-snapd-reseal", fmt.Sprintf(
+			i18n.G("Validate key resealing for snap %q%s"), sc.snapsup.InstanceName(), sc.revisionString()))
+		checkSnapdReseal.Set("finish-restart", true)
+		s.Append(checkSnapdReseal)
+		s.UpdateEdge(checkSnapdReseal, MaybeRebootWaitEdge)
+	}
+
 	if !sc.requiresKmodSetup() {
 		// Let tasks know if they have to do something about restarts
 		// No kernel modules, reboot after link snap

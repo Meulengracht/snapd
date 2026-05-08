@@ -57,6 +57,7 @@ import (
 	"github.com/snapcore/snapd/snapdtool"
 	"github.com/snapcore/snapd/testutil"
 	userclient "github.com/snapcore/snapd/usersession/client"
+	"github.com/snapcore/snapd/wrappers"
 )
 
 type linkSnapSuite struct {
@@ -1571,6 +1572,138 @@ func (s *linkSnapSuite) TestDoLinkSnapSuccessSnapdRestartsOnClassic(c *C) {
 	c.Check(t.Status(), Equals, state.DoneStatus)
 	c.Check(s.restartRequested, DeepEquals, []restart.RestartType{restart.RestartDaemon})
 	c.Check(t.Log(), HasLen, 1)
+}
+
+func (s *linkSnapSuite) TestDoCheckSnapdResealFailsWhenResealValidationFails(c *C) {
+	restoreClassic := release.MockOnClassic(false)
+	defer restoreClassic()
+
+	restoreModel := snapstatetest.MockDeviceModel(MakeModel20("pc", nil))
+	defer restoreModel()
+
+	err := (&boot.Modeenv{Mode: "run"}).WriteTo(dirs.GlobalRootDir)
+	c.Assert(err, IsNil)
+
+	restoreReadInfo := snapstate.MockSnapReadInfo(func(name string, si *snap.SideInfo) (*snap.Info, error) {
+		c.Check(name, Equals, "snapd")
+		return &snap.Info{Version: "2.60", SideInfo: *si, SnapType: snap.TypeSnapd}, nil
+	})
+	defer restoreReadInfo()
+
+	resealChecks := 0
+	restoreReseal := boot.MockResealKeyToModeenv(func(rootdir string, modeenv *boot.Modeenv, opts boot.ResealKeyToModeenvOptions, unlocker boot.Unlocker) error {
+		resealChecks++
+		c.Check(rootdir, Equals, dirs.GlobalRootDir)
+		c.Check(modeenv.Mode, Equals, "run")
+		c.Check(opts.DryRun, Equals, true)
+		return fmt.Errorf("cannot reseal")
+	})
+	defer restoreReseal()
+	restoreWrappers := snapstate.MockGenerateSnapdWrappers(func(snapInfo *snap.Info, opts *backend.GenerateSnapdWrappersOptions) (wrappers.SnapdRestart, error) {
+		return nil, nil
+	})
+	defer restoreWrappers()
+
+	s.state.Lock()
+	currentSideInfo := &snap.SideInfo{
+		RealName: "snapd",
+		SnapID:   "snapd-snap-id",
+		Revision: snap.R(21),
+	}
+	snaptest.MockSnapCurrent(c, "name: snapd\nversion: 2.59\ntype: snapd\n", currentSideInfo)
+	snapstate.Set(s.state, "snapd", &snapstate.SnapState{
+		Active:          true,
+		Sequence:        snapstatetest.NewSequenceFromSnapSideInfos([]*snap.SideInfo{currentSideInfo}),
+		Current:         currentSideInfo.Revision,
+		TrackingChannel: "latest/stable",
+		SnapType:        "snapd",
+	})
+	t := s.state.NewTask("check-snapd-reseal", "test")
+	t.Set("snap-setup", &snapstate.SnapSetup{
+		SideInfo: &snap.SideInfo{
+			RealName: "snapd",
+			SnapID:   "snapd-snap-id",
+			Revision: snap.R(22),
+		},
+		Type: snap.TypeSnapd,
+	})
+	t.Set("finish-restart", true)
+	chg := s.state.NewChange("sample", "...")
+	chg.AddTask(t)
+	s.state.Unlock()
+
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	c.Check(resealChecks, Equals, 1)
+	c.Check(t.Status(), Equals, state.ErrorStatus)
+	c.Assert(chg.Err(), NotNil)
+	c.Check(chg.Err().Error(), Matches, `(?ms).*cannot validate key reseal for snapd refresh: cannot reseal.*`)
+	c.Check(s.restartRequested, HasLen, 0)
+	c.Check(restart.Pending(s.state), Equals, restart.RestartUnset)
+}
+
+func (s *linkSnapSuite) TestDoCheckSnapdResealWaitsForRestart(c *C) {
+	restoreClassic := release.MockOnClassic(false)
+	defer restoreClassic()
+
+	restoreModel := snapstatetest.MockDeviceModel(MakeModel20("pc", nil))
+	defer restoreModel()
+
+	resealChecks := 0
+	restoreReseal := boot.MockResealKeyToModeenv(func(rootdir string, modeenv *boot.Modeenv, opts boot.ResealKeyToModeenvOptions, unlocker boot.Unlocker) error {
+		resealChecks++
+		return nil
+	})
+	defer restoreReseal()
+	restoreWrappers := snapstate.MockGenerateSnapdWrappers(func(snapInfo *snap.Info, opts *backend.GenerateSnapdWrappersOptions) (wrappers.SnapdRestart, error) {
+		return nil, nil
+	})
+	defer restoreWrappers()
+
+	s.state.Lock()
+	currentSideInfo := &snap.SideInfo{
+		RealName: "snapd",
+		SnapID:   "snapd-snap-id",
+		Revision: snap.R(21),
+	}
+	snaptest.MockSnapCurrent(c, "name: snapd\nversion: 2.59\ntype: snapd\n", currentSideInfo)
+	snapstate.Set(s.state, "snapd", &snapstate.SnapState{
+		Active:          true,
+		Sequence:        snapstatetest.NewSequenceFromSnapSideInfos([]*snap.SideInfo{currentSideInfo}),
+		Current:         currentSideInfo.Revision,
+		TrackingChannel: "latest/stable",
+		SnapType:        "snapd",
+	})
+	restart.MockPending(s.state, restart.RestartDaemon)
+	t := s.state.NewTask("check-snapd-reseal", "test")
+	t.Set("snap-setup", &snapstate.SnapSetup{
+		SideInfo: &snap.SideInfo{
+			RealName: "snapd",
+			SnapID:   "snapd-snap-id",
+			Revision: snap.R(22),
+		},
+		Type: snap.TypeSnapd,
+	})
+	t.Set("finish-restart", true)
+	chg := s.state.NewChange("sample", "...")
+	chg.AddTask(t)
+	s.state.Unlock()
+
+	s.se.Ensure()
+	s.se.Wait()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	c.Check(resealChecks, Equals, 0)
+	c.Check(t.Status(), Equals, state.DoingStatus)
+	c.Assert(chg.Err(), IsNil)
+	c.Check(s.restartRequested, HasLen, 0)
+	c.Check(restart.Pending(s.state), Equals, restart.RestartDaemon)
 }
 
 func (s *linkSnapSuite) TestDoLinkSnapSuccessGadgetDoesNotRequestReboot(c *C) {

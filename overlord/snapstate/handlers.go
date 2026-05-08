@@ -2851,6 +2851,40 @@ func daemonRestartReason(st *state.State, typ snap.Type) string {
 	return "Requested daemon restart (snapd snap)."
 }
 
+func (m *SnapManager) doCheckSnapdReseal(t *state.Task, _ *tomb.Tomb) error {
+	st := t.State()
+	st.Lock()
+	defer st.Unlock()
+
+	snapsup, err := TaskSnapSetup(t)
+	if err != nil {
+		return err
+	}
+
+	logger.Debugf("finish restart from doCheckSnapdReseal")
+	if err := FinishRestart(t, snapsup, FinishRestartOptions{FinishRestartDefault: true}); err != nil {
+		return err
+	}
+
+	deviceCtx, err := DeviceCtx(st, t, nil)
+	if err != nil {
+		return err
+	}
+	if snapsup.Type != snap.TypeSnapd || !deviceCtx.HasModeenv() || !deviceCtx.RunMode() {
+		return nil
+	}
+
+	unlocker := st.Unlocker()
+	st.Unlock()
+	defer st.Lock()
+
+	if err := boot.CheckResealKeyToModeenv(dirs.GlobalRootDir, unlocker); err != nil {
+		return fmt.Errorf("cannot validate key reseal for snapd refresh: %v", err)
+	}
+
+	return nil
+}
+
 // maybeDiscardNamespacesOnSnapdDowngrade must be called when we are about to
 // activate a different snapd version. It checks whether we are performing a
 // downgrade to a snapd version that does not support the
