@@ -45,7 +45,7 @@ var debugCmd = &Command{
 	Actions: []string{
 		"add-warning", "unshow-warnings", "ensure-state-soon",
 		"can-manage-refreshes", "prune", "stacktraces",
-		"create-recovery-system", "migrate-home",
+		"create-recovery-system", "create-system-seed", "migrate-home",
 	},
 	ReadAccess:  openAccess{},
 	WriteAccess: rootAccess{},
@@ -58,6 +58,7 @@ type debugAction struct {
 		ChgID string `json:"chg-id"`
 
 		RecoverySystemLabel string `json:"recovery-system-label"`
+		SystemLabel         string `json:"system-label"`
 	} `json:"params"`
 	Snaps []string `json:"snaps"`
 }
@@ -344,6 +345,18 @@ func createRecovery(st *state.State, label string) Response {
 	return AsyncResponse(nil, chg.ID())
 }
 
+func createSystemSeed(st *state.State, label string) Response {
+	if label == "" {
+		return BadRequest("cannot create a system seed with no label")
+	}
+	chg, err := devicestate.CreateRecoverySystem(st, label, devicestate.CreateRecoverySystemOptions{})
+	if err != nil {
+		return InternalError("cannot create system seed %q: %v", label, err)
+	}
+	ensureStateSoon(st)
+	return AsyncResponse(nil, chg.ID())
+}
+
 type featureResponse struct {
 	Tasks      []taskResponse        `json:"tasks"`
 	Interfaces []string              `json:"interfaces"`
@@ -457,6 +470,8 @@ func postDebug(c *Command, r *http.Request, user *auth.UserState) Response {
 		return getStacktraces()
 	case "create-recovery-system":
 		return createRecovery(st, a.Params.RecoverySystemLabel)
+	case "create-system-seed":
+		return createSystemSeed(st, a.Params.SystemLabel)
 	case "migrate-home":
 		return migrateHome(st, a.Snaps)
 	default:

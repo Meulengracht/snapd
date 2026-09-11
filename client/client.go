@@ -806,6 +806,20 @@ func (c *Client) MigrateSnapHome(snaps []string) (changeID string, err error) {
 	return c.doAsync("POST", "/v2/debug", nil, nil, bytes.NewReader(body))
 }
 
+func (c *Client) CreateSystemSeed(label string) (changeID string, err error) {
+	body, err := json.Marshal(debugAction{
+		Action: "create-system-seed",
+		Params: struct {
+			SystemLabel string `json:"system-label"`
+		}{SystemLabel: label},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return c.doAsync("POST", "/v2/debug", nil, nil, bytes.NewReader(body))
+}
+
 // DebugRaw allows to make raw queries to the API with the intention of using it
 // from the debug code.
 func (client *Client) DebugRaw(ctx context.Context, method, urlpath string, query url.Values, headers map[string]string, body io.Reader) (*http.Response, error) {

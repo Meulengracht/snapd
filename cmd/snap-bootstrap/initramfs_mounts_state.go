@@ -47,6 +47,7 @@ var (
 type initramfsMountsState struct {
 	mode           string
 	recoverySystem string
+	runSystem      *boot.RunSystemBoot
 
 	verifiedModel gadget.Model
 	seeds         map[string]seed.Seed

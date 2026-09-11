@@ -64,6 +64,18 @@ func (s *postDebugSuite) TestPostDebugEnsureStateSoon(c *check.C) {
 	c.Check(soon, check.Equals, 1)
 }
 
+func (s *postDebugSuite) TestPostDebugCreateSystemSeedRequiresLabel(c *check.C) {
+	s.daemonWithOverlordMock()
+	s.expectRootAccess()
+
+	req, err := http.NewRequest("POST", "/v2/debug", bytes.NewBufferString(`{"action":"create-system-seed"}`))
+	c.Assert(err, check.IsNil)
+
+	rsp := s.errorReq(c, req, nil, actionIsExpected)
+	c.Check(rsp.Status, check.Equals, 400)
+	c.Check(rsp.Message, check.Equals, "cannot create a system seed with no label")
+}
+
 func (s *postDebugSuite) TestDebugConnectivityHappy(c *check.C) {
 	_ = s.daemon(c)
 

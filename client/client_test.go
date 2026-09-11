@@ -663,6 +663,21 @@ func (cs *clientSuite) TestDebugMigrateHome(c *C) {
 	c.Check(string(data), Equals, `{"action":"migrate-home","snaps":["foo","bar"]}`)
 }
 
+func (cs *clientSuite) TestCreateSystemSeed(c *C) {
+	cs.status = 202
+	cs.rsp = `{"type": "async", "status-code": 202, "change": "123"}`
+
+	changeID, err := cs.cli.CreateSystemSeed("poc-b")
+	c.Check(err, IsNil)
+	c.Check(changeID, Equals, "123")
+	c.Check(cs.reqs, HasLen, 1)
+	c.Check(cs.reqs[0].Method, Equals, "POST")
+	c.Check(cs.reqs[0].URL.Path, Equals, "/v2/debug")
+	data, err := io.ReadAll(cs.reqs[0].Body)
+	c.Assert(err, IsNil)
+	c.Check(string(data), Equals, `{"action":"create-system-seed","params":{"system-label":"poc-b"}}`)
+}
+
 type integrationSuite struct{}
 
 var _ = Suite(&integrationSuite{})

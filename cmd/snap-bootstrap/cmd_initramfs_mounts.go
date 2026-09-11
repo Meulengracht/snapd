@@ -167,6 +167,11 @@ func generateInitramfsMounts() (err error) {
 		return err
 	}
 
+	runSystem, err := boot.RunSystemFromKernelCommandLine()
+	if err != nil {
+		return err
+	}
+
 	activationContext, err := secbootNewActivateContext(context.Background())
 	if err != nil {
 		return err
@@ -174,6 +179,7 @@ func generateInitramfsMounts() (err error) {
 	mst := &initramfsMountsState{
 		mode:            mode,
 		recoverySystem:  recoverySystem,
+		runSystem:       runSystem,
 		activateContext: activationContext,
 	}
 	// generate mounts and set mst.validatedModel
@@ -591,8 +597,10 @@ func doInstall(mst *initramfsMountsState, model *asserts.Model, sysSnaps map[sna
 	// happens because on UC /etc/fstab is changed and systemd's
 	// initrd-parse-etc.service does the reload, as it detects entries with the
 	// x-initrd.mount option.
+	kernelPlaceInfo := snap.MinimalSnapContainerPlaceInfo(kernelSnap.SnapName(), kernelSnap.Revision)
+	installedKernelPath := filepath.Join(rootfsDir, dirs.StripRootDir(kernelPlaceInfo.MountFile()))
 	hasDriversTree, err := createKernelMounts(
-		rootfsDir, kernelSnap.SnapName(), kernelSnap.Revision, !isCore)
+		rootfsDir, installedKernelPath, kernelSnap.SnapName(), kernelSnap.Revision, !isCore)
 	if err != nil {
 		return err
 	}
@@ -2049,7 +2057,7 @@ func maybeMountSave(activateContext secboot.ActivateContext, disk *Disk, rootdir
 	return true, unlockRes, nil
 }
 
-func createKernelMounts(runWritableDataDir, kernelName string, rev snap.Revision, isClassic bool) (bool, error) {
+func createKernelMounts(runWritableDataDir, kernelSnapPath, kernelName string, rev snap.Revision, isClassic bool) (bool, error) {
 	driversStandardDir := kernel.DriversTreeDir(runWritableDataDir, kernelName, rev)
 	// On UC first boot the drivers dir is initially under
 	// _writable_defaults, so we need to check that directory too. But the
@@ -2071,7 +2079,6 @@ func createKernelMounts(runWritableDataDir, kernelName string, rev snap.Revision
 
 	// 1. Mount unit for the kernel snap
 	cpi := snap.MinimalSnapContainerPlaceInfo(kernelName, rev)
-	squashfsPath := filepath.Join(runWritableDataDir, dirs.StripRootDir(cpi.MountFile()))
 	// snapRoot is where we will find the /snap directory where
 	// snaps/components will be mounted
 	// TODO this should use dirs.WritableUbuntuCoreSystemDataDir, but it is
@@ -2082,7 +2089,7 @@ func createKernelMounts(runWritableDataDir, kernelName string, rev snap.Revision
 		snapRoot = "sysroot"
 	}
 	where := filepath.Join(dirs.GlobalRootDir, snapRoot, dirs.StripRootDir(cpi.MountDir()))
-	if err := writeInitramfsMountUnit(squashfsPath, where, squashfsUnit); err != nil {
+	if err := writeInitramfsMountUnit(kernelSnapPath, where, squashfsUnit); err != nil {
 		return false, err
 	}
 
@@ -2201,7 +2208,62 @@ func recalculateRootfsTarget() error {
 	return sysd.StartNoBlock([]string{"initrd-root-fs.target"})
 }
 
-func generateMountsModeRun(mst *initramfsMountsState) error {
+type runModeSnapMount struct {
+	placeInfo snap.PlaceInfo
+	path      string
+}
+
+func runSystemSeedSnapsToMount(mst *initramfsMountsState, model *asserts.Model, typs []snap.Type) (map[snap.Type]runModeSnapMount, *seed.Snap, error) {
+	theSeed, err := mst.LoadSeed(mst.runSystem.Label)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot load run system %q: %v", mst.runSystem.Label, err)
+	}
+
+	essentialTypes := append(append([]snap.Type(nil), typs...), snap.TypeSnapd)
+	perf := timings.New(nil)
+	if err := theSeed.LoadEssentialMeta(essentialTypes, perf); err != nil {
+		return nil, nil, fmt.Errorf("cannot load metadata and verify run system %q: %v", mst.runSystem.Label, err)
+	}
+	if !bytes.Equal(asserts.Encode(theSeed.Model()), asserts.Encode(model)) {
+		return nil, nil, fmt.Errorf("run system %q model does not match the boot model", mst.runSystem.Label)
+	}
+
+	mounts := make(map[snap.Type]runModeSnapMount, len(typs))
+	var snapdSnap *seed.Snap
+	for _, essentialSnap := range theSeed.EssentialSnaps() {
+		if essentialSnap.EssentialType == snap.TypeSnapd {
+			snapdSnap = essentialSnap
+			continue
+		}
+		mounts[essentialSnap.EssentialType] = runModeSnapMount{
+			placeInfo: essentialSnap.PlaceInfo(),
+			path:      essentialSnap.Path,
+		}
+	}
+	for _, typ := range typs {
+		if _, ok := mounts[typ]; !ok {
+			return nil, nil, fmt.Errorf("run system %q has no %s snap", mst.runSystem.Label, typ)
+		}
+	}
+	if snapdSnap == nil {
+		return nil, nil, fmt.Errorf("run system %q has no snapd snap", mst.runSystem.Label)
+	}
+	return mounts, snapdSnap, nil
+}
+
+func generateMountsModeRun(mst *initramfsMountsState) (err error) {
+	if mst.runSystem != nil && mst.runSystem.Trying {
+		defer func() {
+			if err == nil {
+				return
+			}
+			logger.Noticef("cannot boot candidate run system %q: %v", mst.runSystem.Label, err)
+			if rebootErr := boot.InitramfsReboot(); rebootErr != nil {
+				err = fmt.Errorf("%v (cannot reboot to accepted run system: %v)", err, rebootErr)
+			}
+		}()
+	}
+
 	bootMountOpts := &systemdMountOptions{
 		// always fsck the partition when we are mounting it, as this is the
 		// first partition we will be mounting, we can't know if anything is
@@ -2370,11 +2432,26 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 		typs = append([]snap.Type{snap.TypeBase}, typs...)
 	}
 
-	// 4.2 choose base, gadget and kernel snaps (this includes updating
-	//     modeenv if needed to try the base snap)
-	mounts, err := boot.InitramfsRunModeSelectSnapsToMount(typs, modeEnv, rootfsDir)
-	if err != nil {
-		return err
+	var snapdSeed *seed.Snap
+	mounts := make(map[snap.Type]runModeSnapMount, len(typs))
+	if mst.runSystem != nil {
+		mounts, snapdSeed, err = runSystemSeedSnapsToMount(mst, model, typs)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Choose base, gadget and kernel snaps. This includes updating
+		// modeenv if needed to try the base snap.
+		legacyMounts, err := boot.InitramfsRunModeSelectSnapsToMount(typs, modeEnv, rootfsDir)
+		if err != nil {
+			return err
+		}
+		for typ, placeInfo := range legacyMounts {
+			mounts[typ] = runModeSnapMount{
+				placeInfo: placeInfo,
+				path:      filepath.Join(dirs.SnapBlobDirUnder(rootfsDir), placeInfo.Filename()),
+			}
+		}
 	}
 
 	// TODO:UC20: with grade > dangerous, verify the kernel snap hash against
@@ -2395,22 +2472,21 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 				return fmt.Errorf("cannot write sysroot.mount (what: %s): %v", rootfsDir, err)
 			}
 		} else {
-			basePlaceInfo := mounts[snap.TypeBase]
-			what := filepath.Join(dirs.SnapBlobDirUnder(rootfsDir), basePlaceInfo.Filename())
+			baseMount := mounts[snap.TypeBase]
 
 			// TODO: verity data for the mount should be passed here instead of nil
 			// once support for verity data in run mode is added
-			if err := writeSysrootMountUnit(what, "squashfs", nil); err != nil {
-				return fmt.Errorf("cannot write sysroot.mount (what: %s): %v", what, err)
+			if err := writeSysrootMountUnit(baseMount.path, "squashfs", nil); err != nil {
+				return fmt.Errorf("cannot write sysroot.mount (what: %s): %v", baseMount.path, err)
 			}
 		}
 	}
 
 	// Create mounts for kernel modules/firmware if we have a drivers tree.
 	// InitramfsRunModeSelectSnapsToMount guarantees we do have a kernel in the map.
-	kernPlaceInfo := mounts[snap.TypeKernel]
+	kernelMount := mounts[snap.TypeKernel]
 	hasDriversTree, err := createKernelMounts(
-		rootfsDir, kernPlaceInfo.SnapName(), kernPlaceInfo.SnapRevision(), isClassic)
+		rootfsDir, kernelMount.path, kernelMount.placeInfo.SnapName(), kernelMount.placeInfo.SnapRevision(), isClassic)
 	if err != nil {
 		return err
 	}
@@ -2425,9 +2501,8 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 			continue
 		}
 		dir := snapTypeToMountDir[typ]
-		snapPath := filepath.Join(dirs.SnapBlobDirUnder(rootfsDir), sn.Filename())
 		snapMntPt := filepath.Join(boot.InitramfsRunMntDir, dir)
-		if err := doSystemdMount(snapPath, snapMntPt, mountReadOnlyOptions); err != nil {
+		if err := doSystemdMount(sn.path, snapMntPt, mountReadOnlyOptions); err != nil {
 			return err
 		}
 		// On 24+ kernels, create /lib/{firmware,modules} mounts if
@@ -2465,8 +2540,13 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 		}
 	}
 
-	// 4.5 mount snapd snap only on first boot
-	if modeEnv.RecoverySystem != "" && !isClassic {
+	// 4.5 mount the snapd snap from a selected run system, or from the
+	// recovery system on first boot.
+	if snapdSeed != nil {
+		if err := setupRunSystemSnapdSnap(rootfsDir, snapdSeed); err != nil {
+			return err
+		}
+	} else if modeEnv.RecoverySystem != "" && !isClassic {
 		// load the recovery system and generate mount for snapd
 		theSeed, err := mst.LoadSeed(modeEnv.RecoverySystem)
 		if err != nil {
@@ -2488,8 +2568,35 @@ func generateMountsModeRun(mst *initramfsMountsState) error {
 			return err
 		}
 	}
+	if mst.runSystem != nil {
+		if err := os.MkdirAll(dirs.SnapRunDir, 0755); err != nil {
+			return err
+		}
+		markerPath := filepath.Join(dirs.SnapRunDir, "booted-run-seed")
+		if err := osutil.AtomicWriteFile(markerPath, []byte(mst.runSystem.Label+"\n"), 0644, 0); err != nil {
+			return fmt.Errorf("cannot write booted run system marker: %v", err)
+		}
+	}
 
 	return nil
+}
+
+func setupRunSystemSnapdSnap(rootfsDir string, snapdSeedSnap *seed.Snap) error {
+	si := *snapdSeedSnap.SideInfo
+	if si.Revision.Unset() {
+		si.Revision = snap.R(-1)
+	}
+	cpi := snap.MinimalSnapContainerPlaceInfo(si.RealName, si.Revision)
+	if err := writeSnapMountUnit(rootfsDir, snapdSeedSnap.Path, cpi.MountDir(),
+		systemd.RegularMountUnit, cpi.MountDescription()); err != nil {
+		return fmt.Errorf("while writing %s run-system mount unit: %v", si.RealName, err)
+	}
+
+	mountDir := filepath.Join(rootfsDir, dirs.StripRootDir(dirs.SnapMountDir), si.RealName)
+	if err := os.MkdirAll(mountDir, 0755); err != nil {
+		return err
+	}
+	return osutil.AtomicSymlink(si.Revision.String(), filepath.Join(mountDir, "current"))
 }
 
 // setupSeedSnapdSnap makes sure that snapd from the snap is ready to be used

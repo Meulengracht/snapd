@@ -775,6 +775,47 @@ func (s *initramfsMountsSuite) TestInitramfsMountsRunModeFirstBootRecoverySystem
 	checkSnapdMountUnit(c)
 }
 
+func (s *initramfsMountsSuite) TestInitramfsMountsRunModeSelectedSystemHappy(c *C) {
+	s.mockProcCmdlineContent(c, "snapd_recovery_mode=run snapd_run_system="+s.sysLabel)
+	s.mockBlkidDisk("gpt", 1)
+
+	restore := s.mockSystemdMountSequence(c, []systemdMount{
+		s.nodeMount("ubuntu-boot", "run"),
+		s.nodeMount("ubuntu-seed", "run"),
+		s.nodeMount("ubuntu-data", "run"),
+		s.nodeMount("ubuntu-save", "run"),
+		s.makeSeedSnapSystemdMount(snap.TypeBase),
+		s.makeSeedSnapSystemdMount(snap.TypeGadget),
+		s.makeSeedSnapSystemdMount(snap.TypeKernel),
+	}, nil)
+	defer restore()
+
+	bloader := boottest.MockUC20RunBootenv(bootloadertest.Mock("mock", c.MkDir()))
+	bootloader.Force(bloader)
+	defer bootloader.Force(nil)
+
+	restore = bloader.SetEnabledKernel(s.kernel)
+	defer restore()
+
+	// Keep the legacy snaps available on ubuntu-data to prove that explicit
+	// run-system selection uses the paths from ubuntu-seed instead.
+	s.makeSnapFilesOnEarlyBootUbuntuData(c, s.kernel, s.core20, s.gadget)
+
+	modeEnv := boot.Modeenv{
+		Mode:           "run",
+		Base:           s.core20.Filename(),
+		Gadget:         s.gadget.Filename(),
+		CurrentKernels: []string{s.kernel.Filename()},
+	}
+	err := modeEnv.WriteTo(filepath.Join(dirs.GlobalRootDir, "/run/mnt/data/system-data"))
+	c.Assert(err, IsNil)
+
+	_, err = main.Parser().ParseArgs([]string{"initramfs-mounts"})
+	c.Assert(err, IsNil)
+	c.Check(filepath.Join(dirs.SnapRunDir, "booted-run-seed"),
+		testutil.FileEquals, s.sysLabel+"\n")
+}
+
 func (s *initramfsMountsSuite) TestInitramfsMountsRunModeWithBootedKernelPartUUIDHappy(c *C) {
 	s.mockProcCmdlineContent(c, "snapd_recovery_mode=run")
 
