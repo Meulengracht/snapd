@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+# systemd invokes generators very early in manager startup with three output
+# directories: normal, early, and late. Run-system units are published in the
+# early directory so they take precedence over units generated later from the
+# installed snap state. The first argument is the normal directory; this PoC
+# intentionally uses only the second argument.
+EARLY_DIR=${2:?missing early generator directory}
+
+# snap-bootstrap writes this volatile marker after it has verified and mounted
+# the seed selected by GRUB. Absence of the marker means this is a conventional
+# run-mode boot, so the generator must leave systemd's unit graph untouched.
+MARKER_FILE=/run/snapd/booted-run-seed
+if [ ! -s "$MARKER_FILE" ]; then
+    exit 0
+fi
+
+# Treat the marker as untrusted filesystem input even though snap-bootstrap
+# normally creates it. Restrict labels to the same simple names used as seed
+# directory components and reject forms that could be confused with options,
+# hidden path components, or repeated separators.
+IFS= read -r label < "$MARKER_FILE" || true
+case "$label" in
+    ""|-*|*-|*--*|*[!a-z0-9-]*)
+        echo "snapd-run-system-generator: invalid run-system label: $label" >&2
+        exit 1
+        ;;
+esac
+
+# Candidate creation pre-generates a small, seed-specific unit set under
+# persistent snapd state. The generator does not parse seed metadata or invent
+# units during boot; it selects only the directory matching the verified boot
+# marker and exposes its existing units through generator symlinks.
+UNITS_DIR="/var/lib/snapd/systems/$label/systemd/system"
+if [ ! -d "$UNITS_DIR" ]; then
+    echo "snapd-run-system-generator: missing generated state for $label" >&2
+    exit 1
+fi
+
+# This is a narrow PoC of snap finalization, not a replacement for
+# snapd's normal snap finalization:
+#
+#  1. *.mount exposes the one test snap staged in the selected system seed.
+#  2. snapd-run-system-finalize.service waits for that mount and snapd, invokes
+#     the test snap's finalize callback, and asks snapd to accept the seed.
+#  3. snap.test-snapd-sh-core26.svc.service starts only after the finalizer and
+#     proves which test-snap revision actually ran.
+#
+# The generator itself performs none of those actions; it only wires their unit
+# ordering into this boot. The finalizer covers one test payload and promotion
+# of try_run_system to run_system. It does not install or remove a complete snap
+# set, regenerate security profiles, run arbitrary configure/install hooks,
+# migrate snap data, reconcile services, validate signed application membership,
+# or implement a production transaction/undo protocol. Failure merely activates
+# the static rollback service through the finalizer unit's OnFailure dependency;
+# that service records the failed label and reboots so GRUB falls back.
+for unit in snapd-run-system-finalize.service snap.test-snapd-sh-core26.svc.service *.mount; do
+    for source in "$UNITS_DIR"/$unit; do
+        # The glob may remain literal when a seed has no matching mount unit.
+        # Skip that case while still requiring the finalizer/payload files to be
+        # meaningful through their later systemd dependencies.
+        [ -e "$source" ] || continue
+        ln -s "$source" "$EARLY_DIR/$(basename "$source")"
+    done
+done
+
+# Publishing a unit file is not enough to start it. Add only the payload service
+# to multi-user.target; its Requires/After chain pulls in the snap mount and the
+# oneshot finalizer in the required order. If finalization fails, the payload is
+# not started.
+mkdir -p "$EARLY_DIR/multi-user.target.wants"
+ln -s ../snap.test-snapd-sh-core26.svc.service \
+    "$EARLY_DIR/multi-user.target.wants/snap.test-snapd-sh-core26.svc.service"

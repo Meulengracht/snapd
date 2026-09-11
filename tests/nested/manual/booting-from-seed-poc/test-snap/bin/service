@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+state_dir=/var/lib/snapd/boot-from-seed-poc
+snap_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+mkdir -p "$state_dir"
+printf '%s %s\n' "${POC_RUN_SYSTEM:-unknown}" "$(cat "$snap_dir/poc-revision")" \
+    > "$state_dir/active-service"
+exec sleep infinity
