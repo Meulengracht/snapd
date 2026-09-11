@@ -1,0 +1,66 @@
+summary: exercise the UC26 boot-from-seed proof of concept
+
+details: |
+  Build a UC26 image containing the boot-from-seed prototype and run its
+  reboot-resilient A/B test. The test proves candidate failure falls back to A,
+  successful finalization accepts B, and B remains selected after another
+  reboot.
+
+systems: [ubuntu-26.04-64]
+
+manual: true
+
+warn-timeout: 20m
+kill-timeout: 2h
+
+environment:
+  NESTED_ENABLE_TPM: false
+  NESTED_ENABLE_SECURE_BOOT: false
+  NESTED_BUILD_SNAPD_FROM_CURRENT: false
+  NESTED_CUSTOM_MODEL: $(pwd)/artifacts/model.assert
+
+artifacts:
+  - artifacts/build-manifest.json
+  - result.json
+  - boot-from-seed-journal.log
+  - serial.log
+
+prepare: |
+  tests.nested prepare
+
+  # This is the primary entry point, it constructs the image we need to boot
+  # and prepares the initial system seed.
+  ./build-image.sh "$(pwd)/artifacts"
+
+  # copy the built image to the images path so it can be used by the VM
+  image_dir=$(tests.nested get images-path)
+  image_name=$(tests.nested get image-name core)
+  cp artifacts/uc26-boot-from-seed-poc.img "${image_dir}/${image_name}"
+
+  # create the VM and wait for it to be initialized
+  tests.nested configure-default-user
+  tests.nested create-vm core
+  remote.wait-for device-initialized
+
+restore: |
+  tests.nested restore
+
+debug: |
+  remote.exec "sudo journalctl -b --no-pager" > boot-from-seed-journal.log 2>&1 || true
+  tests.nested get serial-log > serial.log 2>&1 || true
+  remote.exec "sudo cat /var/lib/snapd/boot-from-seed-poc/result.json" > result.json 2>&1 || true
+
+execute: |
+  # start the A/B test on the remote system
+  remote.exec "sudo /var/lib/snapd/boot-from-seed-poc/run-ab-test.sh start"
+
+  # let's wait for the marker to be emitted
+  retry -n 360 --wait 5 sh -c '
+    remote.exec "sudo /var/lib/snapd/boot-from-seed-poc/run-ab-test.sh status" |
+      MATCH "{\"result\":\"PASS\",\"accepted\":\"poc-b\"}"
+  '
+
+  # get the final result and logs from the remote system
+  remote.exec "sudo cat /var/lib/snapd/boot-from-seed-poc/result.json" > result.json
+  remote.exec "sudo journalctl --no-pager -u boot-from-seed-poc-test.service -u snapd-run-system-finalize.service -u snapd-run-system-rollback.service" > boot-from-seed-journal.log
+  tests.nested get serial-log > serial.log

@@ -1,0 +1,12 @@
+name: test-snapd-sh-core26
+version: "A"
+summary: Boot-from-seed PoC daemon
+description: A daemon used to identify the application revision selected by a run system.
+base: core26
+grade: devel
+confinement: devmode
+
+apps:
+  svc:
+    command: bin/service
+    daemon: simple

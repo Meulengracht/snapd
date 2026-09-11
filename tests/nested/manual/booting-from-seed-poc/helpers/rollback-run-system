@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+state_dir=/var/lib/snapd/boot-from-seed-poc
+mkdir -p "$state_dir"
+label=$(cat /run/snapd/booted-run-seed 2>/dev/null || true)
+printf '%s\n' "$label" > "$state_dir/last-failed-system"
+sync
+systemctl --no-block reboot

@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+early_dir=${2:?missing early generator directory}
+marker=/run/snapd/booted-run-seed
+
+if [ ! -s "$marker" ]; then
+    exit 0
+fi
+
+IFS= read -r label < "$marker" || true
+case "$label" in
+    ""|-*|*-|*--*|*[!a-z0-9-]*)
+        echo "snapd-run-system-generator: invalid run-system label: $label" >&2
+        exit 1
+        ;;
+esac
+
+units_dir="/var/lib/snapd/systems/$label/systemd/system"
+if [ ! -d "$units_dir" ]; then
+    echo "snapd-run-system-generator: missing generated state for $label" >&2
+    exit 1
+fi
+
+for unit in snapd-run-system-finalize.service snap.test-snapd-sh-core26.svc.service *.mount; do
+    for source in "$units_dir"/$unit; do
+        [ -e "$source" ] || continue
+        ln -s "$source" "$early_dir/$(basename "$source")"
+    done
+done
+
+mkdir -p "$early_dir/multi-user.target.wants"
+ln -s ../snap.test-snapd-sh-core26.svc.service \
+    "$early_dir/multi-user.target.wants/snap.test-snapd-sh-core26.svc.service"

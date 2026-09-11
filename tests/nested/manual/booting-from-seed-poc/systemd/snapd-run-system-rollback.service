@@ -1,0 +1,7 @@
+[Unit]
+Description=Roll back a failed boot-from-seed candidate
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/var/lib/snapd/boot-from-seed-poc/rollback-run-system

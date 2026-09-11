@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+label=${1:?missing run-system label}
+state_dir=/var/lib/snapd/boot-from-seed-poc
+snap_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+mkdir -p "$state_dir"
+printf '%s %s\n' "$label" "$(cat "$snap_dir/poc-revision")" \
+    > "$state_dir/last-finalized"

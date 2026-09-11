@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+label=${1:?missing run-system label}
+revision=${2:?missing test-snap revision}
+state_dir=/var/lib/snapd/boot-from-seed-poc
+status_dir="/var/lib/snapd/systems/$label"
+
+mkdir -p "$state_dir" "$status_dir"
+
+current=$(snap debug run-system-status | sed -n 's/^run_system=//p')
+if [ "$current" = "$label" ]; then
+    exit 0
+fi
+
+if [ -e "$state_dir/fail-finalization" ]; then
+    printf '{"label":"%s","revision":"%s","result":"failed"}\n' \
+        "$label" "$revision" > "$status_dir/status.json.tmp"
+    mv "$status_dir/status.json.tmp" "$status_dir/status.json"
+    exit 1
+fi
+
+"/snap/test-snapd-sh-core26/$revision/bin/finalize" "$label"
+snap debug accept-system-seed "$label"
+
+printf '{"label":"%s","revision":"%s","result":"accepted"}\n' \
+    "$label" "$revision" > "$status_dir/status.json.tmp"
+mv "$status_dir/status.json.tmp" "$status_dir/status.json"
