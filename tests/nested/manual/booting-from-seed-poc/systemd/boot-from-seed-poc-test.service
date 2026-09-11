@@ -1,0 +1,11 @@
+[Unit]
+Description=Resume the boot-from-seed PoC test
+After=snapd.service snapd.seeded.service snapd-run-system-finalize.service
+Wants=snapd.service snapd.seeded.service
+
+[Service]
+Type=oneshot
+ExecStart=/var/lib/snapd/boot-from-seed-poc/run-ab-test.sh resume
+
+[Install]
+WantedBy=multi-user.target
