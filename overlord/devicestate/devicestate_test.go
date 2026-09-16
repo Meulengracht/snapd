@@ -2358,6 +2358,49 @@ func (s *deviceMgrSuite) TestCreateSeedRefreshTasks(c *C) {
 	c.Check(boundary, Equals, restart.RestartBoundaryDirectionDo)
 }
 
+func (s *deviceMgrSuite) TestCreateSeedRefreshTasksForAcceptedRunSystem(c *C) {
+	s.state.Lock()
+	defer s.state.Unlock()
+
+	restore := devicestate.MockTimeNow(func() time.Time {
+		return time.Date(2026, 2, 27, 8, 30, 0, 0, time.UTC)
+	})
+	defer restore()
+
+	c.Assert(s.bootloader.SetBootVars(map[string]string{"run_system": "poc-a"}), IsNil)
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.WriteFile(marker, []byte("poc-a\n"), 0644), IsNil)
+
+	tSnap := s.state.NewTask("fake-download", "...")
+	dctx := s.setupSeedRefreshSeedAndContext(c, []map[string]string{
+		{"name": "snapd", "type": "snapd"},
+		{"name": "core24", "type": "base", "default-channel": "24"},
+		{"name": "pc-kernel", "type": "kernel", "default-channel": "24"},
+		{"name": "pc", "type": "gadget", "default-channel": "24"},
+		{"name": "snap-1"},
+	}, nil)
+
+	seedTS, added, err := devicestate.SeedRefreshTasks(s.state, dctx, []snapstate.SeedRefreshCandidate{{
+		InstanceName:     "snap-1",
+		SnapSetupTaskIDs: []string{tSnap.ID()},
+	}}, snapstate.SeedRefreshEvictionPolicy{SeedsToRetain: 1})
+	c.Assert(err, IsNil)
+	c.Assert(added, DeepEquals, map[string]bool{"snap-1": true})
+	c.Assert(seedTS.RunSystem, DeepEquals, &snapstate.RunSystemSeedRefresh{
+		AcceptedLabel:  "poc-a",
+		CandidateLabel: "20260227",
+		SnapNames:      []string{"snap-1"},
+	})
+	c.Assert(seedTS.Verify, NotNil)
+	c.Check(seedTS.Verify.Kind(), Equals, "verify-run-system")
+	c.Check(seedTS.Verify.WaitTasks(), DeepEquals, []*state.Task{seedTS.Create})
+
+	var setup devicestate.RecoverySystemSetup
+	c.Assert(seedTS.Create.Get("recovery-system-setup", &setup), IsNil)
+	c.Check(setup.RunSystem, DeepEquals, seedTS.RunSystem)
+	c.Check(setup.MarkDefault, Equals, false)
+}
+
 func (s *deviceMgrSuite) TestCreateSeedRefreshTasksAllowlistUsesCurrentSeedOptionals(c *C) {
 	s.state.Lock()
 	defer s.state.Unlock()
@@ -3205,20 +3248,35 @@ func (s *deviceMgrSuite) TestUpdateSeedRefreshChangeUsesPendingSeedRefreshTasks(
 		Directory:      filepath.Join(boot.InitramfsUbuntuSeedDir, "systems", "20260227"),
 		SnapSetupTasks: []string{currentSnapTask.ID()},
 		Allowlist:      &devicestate.SeedAllowlist{Snaps: []string{"snap-1", "snap-2"}},
+		RunSystem: &snapstate.RunSystemSeedRefresh{
+			AcceptedLabel:  "poc-a",
+			CandidateLabel: "20260227",
+			SnapNames:      []string{"snap-1"},
+		},
 	})
+	currentVerify := s.state.NewTask("verify-run-system", "...")
+	currentVerify.Set("recovery-system-setup-task", currentCreate.ID())
+	currentVerify.WaitFor(currentCreate)
 	currentFinalize := s.state.NewTask("finalize-recovery-system", "...")
 	currentFinalize.Set("recovery-system-setup-task", currentCreate.ID())
+	currentFinalize.WaitFor(currentVerify)
 	currentRemove := s.state.NewTask("remove-recovery-system", "...")
 	currentRemove.WaitFor(currentFinalize)
-	seedRefreshTS := state.NewTaskSet(oldCreate, oldFinalize, oldRemove, currentCreate, currentFinalize, currentRemove)
+	seedRefreshTS := state.NewTaskSet(oldCreate, oldFinalize, oldRemove, currentCreate, currentVerify, currentFinalize, currentRemove)
 
 	nextSnapTask := s.state.NewTask("fake-download", "...")
 	seedTS, err := devicestate.PendingSeedRefreshTasks(seedRefreshTS)
 	c.Assert(err, IsNil)
 	c.Assert(seedTS, NotNil)
 	c.Check(seedTS.Create, Equals, currentCreate)
+	c.Check(seedTS.Verify, Equals, currentVerify)
 	c.Check(seedTS.Finalize, Equals, currentFinalize)
 	c.Check(seedTS.Remove, DeepEquals, []*state.Task{currentRemove})
+	c.Check(seedTS.RunSystem, DeepEquals, &snapstate.RunSystemSeedRefresh{
+		AcceptedLabel:  "poc-a",
+		CandidateLabel: "20260227",
+		SnapNames:      []string{"snap-1"},
+	})
 
 	added, err := devicestate.UpdateSeedRefreshChange(seedTS, dctx, snapstate.SeedRefreshCandidate{
 		InstanceName:     "snap-2",
@@ -3237,6 +3295,7 @@ func (s *deviceMgrSuite) TestUpdateSeedRefreshChangeUsesPendingSeedRefreshTasks(
 	var currentSetup devicestate.RecoverySystemSetup
 	c.Assert(currentCreate.Get("recovery-system-setup", &currentSetup), IsNil)
 	c.Check(currentSetup.SnapSetupTasks, DeepEquals, []string{currentSnapTask.ID(), nextSnapTask.ID()})
+	c.Check(currentSetup.RunSystem.SnapNames, DeepEquals, []string{"snap-1", "snap-2"})
 }
 
 func (s *deviceMgrSuite) TestPendingSeedRefreshTasksErrorsWhenCreateStartedAndFinalizePending(c *C) {

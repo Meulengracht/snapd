@@ -21,6 +21,7 @@ package devicestate
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -39,9 +40,14 @@ import (
 	"github.com/snapcore/snapd/overlord/restart"
 	"github.com/snapcore/snapd/overlord/snapstate"
 	"github.com/snapcore/snapd/overlord/state"
+	"github.com/snapcore/snapd/progress"
 	"github.com/snapcore/snapd/seed"
+	"github.com/snapcore/snapd/snap"
+	"github.com/snapcore/snapd/snap/snapfile"
 	"github.com/snapcore/snapd/strutil"
+	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/timings"
+	"github.com/snapcore/snapd/wrappers"
 )
 
 func taskRecoverySystemSetup(t *state.Task) (*recoverySystemSetup, error) {
@@ -75,6 +81,207 @@ func setTaskRecoverySystemSetup(t *state.Task, setup *recoverySystemSetup) error
 		return nil
 	}
 	return fmt.Errorf("internal error: cannot indirectly set recovery-system-setup")
+}
+
+func runSystemStateDir(label string) string {
+	return filepath.Join(dirs.SnapdStateDir(dirs.GlobalRootDir), "systems", label)
+}
+
+var prepareRunSystemUnits = prepareRunSystemUnitsImpl
+
+func prepareRunSystemUnitsImpl(setup *recoverySystemSetup) error {
+	if setup.RunSystem == nil {
+		return errors.New("internal error: missing run-system setup")
+	}
+	if len(setup.RunSystem.SnapNames) != 1 {
+		return fmt.Errorf("run-system PoC requires exactly one participating snap, got %d", len(setup.RunSystem.SnapNames))
+	}
+
+	finalDir := runSystemStateDir(setup.Label)
+	if osutil.IsDirectory(finalDir) {
+		return nil
+	}
+	tmpDir := finalDir + ".tmp"
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	unitRoot := filepath.Join(tmpDir, "root")
+	unitDir := dirs.SnapServicesDirUnder(unitRoot)
+	if err := os.MkdirAll(unitDir, 0755); err != nil {
+		return err
+	}
+
+	sd, err := seedOpen(boot.InitramfsUbuntuSeedDir, setup.Label)
+	if err != nil {
+		return fmt.Errorf("cannot open run-system seed %q: %v", setup.Label, err)
+	}
+	if err := sd.LoadAssertions(nil, nil); err != nil {
+		return fmt.Errorf("cannot load run-system seed assertions: %v", err)
+	}
+	if err := sd.LoadMeta("run", nil, timings.New(nil)); err != nil {
+		return fmt.Errorf("cannot load run-system seed metadata: %v", err)
+	}
+
+	seedSnap, err := sd.ModeSnap(setup.RunSystem.SnapNames[0], "run")
+	if err != nil {
+		return err
+	}
+	container, err := snapfile.Open(seedSnap.Path)
+	if err != nil {
+		return err
+	}
+	info, err := snap.ReadInfoFromSnapFile(container, seedSnap.SideInfo)
+	if err != nil {
+		return err
+	}
+	services := info.Services()
+	if len(services) != 1 || services[0].DaemonScope != snap.SystemDaemon || len(services[0].Sockets) != 0 || services[0].Timer != nil || len(services[0].ActivatesOn) != 0 {
+		return fmt.Errorf("run-system PoC requires exactly one simple system service in snap %q", info.InstanceName())
+	}
+
+	hostFsType, mountOptions := systemd.HostFsTypeAndMountOptions("squashfs")
+	mountUnit, _, err := systemd.EnsureMountUnitFileContent(&systemd.MountUnitOptions{
+		Lifetime:    systemd.Persistent,
+		Description: info.MountDescription(),
+		What:        seedSnap.Path,
+		Where:       dirs.StripRootDir(info.MountDir()),
+		Fstype:      hostFsType,
+		Options:     mountOptions,
+		RootDir:     unitRoot,
+	})
+	if err != nil {
+		return err
+	}
+
+	const finalizeService = "snapd-run-system-finalize.service"
+	service := services[0]
+	serviceContent, err := wrappers.GenerateRunSystemServiceUnit(service, &wrappers.RunSystemServiceOptions{
+		RunSystemLabel:  setup.Label,
+		Revision:        info.Revision,
+		FinalizeService: finalizeService,
+	})
+	if err != nil {
+		return err
+	}
+	if err := osutil.AtomicWriteFile(filepath.Join(unitDir, service.ServiceName()), serviceContent, 0644, 0); err != nil {
+		return err
+	}
+
+	finalizer := fmt.Sprintf(`[Unit]
+Description=Prepare run system %s
+Requires=%s snapd.service
+After=%s snapd.service
+Before=%s
+OnFailure=snapd-run-system-rollback.service
+
+[Service]
+Type=oneshot
+ExecStart=/var/lib/snapd/boot-from-seed-poc/finalize-run-system %s %s prepare-only
+RemainAfterExit=yes
+`, setup.Label, mountUnit, mountUnit, service.ServiceName(), setup.Label, info.Revision)
+	if err := osutil.AtomicWriteFile(filepath.Join(unitDir, finalizeService), []byte(finalizer), 0644, 0); err != nil {
+		return err
+	}
+
+	if err := os.Rename(filepath.Join(tmpDir, "root", "etc", "systemd"), filepath.Join(tmpDir, "systemd")); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(tmpDir, "root")); err != nil {
+		return err
+	}
+	if err := osutil.AtomicWriteFile(filepath.Join(tmpDir, "seed-refresh"), nil, 0644, 0); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
+		return err
+	}
+	return osutil.AtomicRename(tmpDir, finalDir)
+}
+
+var teardownTryingRunSystemUnits = teardownTryingRunSystemUnitsImpl
+
+func teardownTryingRunSystemUnitsImpl(label string) error {
+	unitDir := filepath.Join(runSystemStateDir(label), "systemd", "system")
+	entries, err := os.ReadDir(unitDir)
+	if err != nil {
+		return err
+	}
+	generatorDir := filepath.Join(dirs.GlobalRootDir, "run", "systemd", "generator.early")
+	units := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && osutil.FileExists(filepath.Join(generatorDir, entry.Name())) {
+			units = append(units, entry.Name())
+		}
+	}
+
+	sysd := systemd.New(systemd.SystemMode, progress.Null)
+	if len(units) != 0 {
+		if err := sysd.Stop(units); err != nil {
+			return err
+		}
+	}
+	for _, unit := range units {
+		if err := os.Remove(filepath.Join(generatorDir, unit)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.Remove(filepath.Join(generatorDir, "multi-user.target.wants", "snapd-run-system-finalize.service")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return sysd.DaemonReload()
+}
+
+func (m *DeviceManager) doVerifyRunSystem(t *state.Task, _ *tomb.Tomb) error {
+	st := t.State()
+	st.Lock()
+	defer st.Unlock()
+
+	setup, err := taskRecoverySystemSetup(t)
+	if err != nil {
+		return err
+	}
+	if setup.RunSystem == nil {
+		return errors.New("internal error: verify-run-system task has no run-system setup")
+	}
+	booted, err := boot.BootedRunSystem()
+	if err != nil {
+		return fmt.Errorf("cannot identify booted run system: %v", err)
+	}
+	if booted != setup.Label {
+		return fmt.Errorf("run-system candidate %q failed, booted into %q", setup.Label, booted)
+	}
+
+	statusPath := filepath.Join(runSystemStateDir(setup.Label), "status.json")
+	data, err := os.ReadFile(statusPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &state.Retry{After: time.Second}
+		}
+		return err
+	}
+	var status struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(data, &status); err != nil {
+		return err
+	}
+	if status.Result != "prepared" {
+		return fmt.Errorf("run-system candidate %q finalization result is %q", setup.Label, status.Result)
+	}
+	if err := osutil.AtomicWriteFile(filepath.Join(runSystemStateDir(setup.Label), "seed-refresh-verified"), nil, 0644, 0); err != nil {
+		return fmt.Errorf("cannot mark run-system candidate %q as verified: %v", setup.Label, err)
+	}
+
+	st.Unlock()
+	err = teardownTryingRunSystemUnits(setup.Label)
+	st.Lock()
+	if err != nil {
+		return fmt.Errorf("cannot tear down trying run-system units: %v", err)
+	}
+
+	t.SetStatus(state.DoneStatus)
+	return nil
 }
 
 func logNewSystemSnapFile(logfile, fileName string) error {
@@ -339,6 +546,11 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 		if err == nil {
 			return
 		}
+		if setup.RunSystem != nil {
+			if err := os.RemoveAll(runSystemStateDir(label)); err != nil {
+				logger.Noticef("when removing run-system state %q: %v", label, err)
+			}
+		}
 		if err := purgeNewSystemSnapFiles(filepath.Join(systemDirectory, "snapd-new-file-log")); err != nil {
 			logger.Noticef("when removing seed files: %v", err)
 		}
@@ -373,6 +585,17 @@ func (m *DeviceManager) doCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) (err
 	// 2. keep track of the system in task state
 	if err := setTaskRecoverySystemSetup(t, setup); err != nil {
 		return fmt.Errorf("cannot record recovery system setup state: %v", err)
+	}
+
+	if setup.RunSystem != nil {
+		if err := prepareRunSystemUnits(setup); err != nil {
+			return fmt.Errorf("cannot prepare run system %q: %v", label, err)
+		}
+		if err := boot.SetTryRunSystem(label); err != nil {
+			return fmt.Errorf("cannot attempt booting into run system %q: %v", label, err)
+		}
+		logger.Noticef("restarting into run-system candidate %q", label)
+		return snapstate.FinishTaskWithRestart(t, state.DoneStatus, restart.RestartSystemNow, nil)
 	}
 
 	// during a remodel, we will always test the system. this handles the case
@@ -431,6 +654,14 @@ func (m *DeviceManager) undoCreateRecoverySystem(t *state.Task, _ *tomb.Tomb) er
 		return fmt.Errorf("internal error: cannot obtain recovery system setup information")
 	}
 	label := setup.Label
+	if setup.RunSystem != nil {
+		if err := boot.ClearTryRunSystem(label); err != nil {
+			t.Logf("when clearing run-system candidate: %v", err)
+		}
+		if err := os.RemoveAll(runSystemStateDir(label)); err != nil {
+			t.Logf("when removing run-system state: %v", err)
+		}
+	}
 
 	var undoErr error
 
@@ -480,13 +711,6 @@ func (m *DeviceManager) doFinalizeTriedRecoverySystem(t *state.Task, _ *tomb.Tom
 	}
 	isRemodel := remodelCtx.ForRemodeling()
 
-	var triedSystems []string
-	// after rebooting to the recovery system and back, the system got moved
-	// to the tried-systems list in the state
-	if err := st.Get("tried-systems", &triedSystems); err != nil {
-		return fmt.Errorf("cannot obtain tried recovery systems: %v", err)
-	}
-
 	setup, err := taskRecoverySystemSetup(t)
 	if err != nil {
 		return err
@@ -494,6 +718,35 @@ func (m *DeviceManager) doFinalizeTriedRecoverySystem(t *state.Task, _ *tomb.Tom
 	label := setup.Label
 
 	logger.Debugf("finalize recovery system with label %q", label)
+	if setup.RunSystem != nil {
+		if err := boot.PromoteTriedRunSystem(label); err != nil {
+			return fmt.Errorf("cannot promote run system %q: %v", label, err)
+		}
+		model := remodelCtx.Model()
+		now := time.Now()
+		addedSeededSystem := &seededSystem{
+			System:      label,
+			Model:       model.Model(),
+			BrandID:     model.BrandID(),
+			Revision:    model.Revision(),
+			Timestamp:   model.Timestamp(),
+			SeedTime:    now,
+			SeedRefresh: true,
+		}
+		t.Set("added-seeded-system", addedSeededSystem)
+		if err := m.recordSeededSystem(st, addedSeededSystem); err != nil {
+			return fmt.Errorf("cannot record a new run system: %v", err)
+		}
+		t.SetStatus(state.DoneStatus)
+		return nil
+	}
+
+	var triedSystems []string
+	// after rebooting to the recovery system and back, the system got moved
+	// to the tried-systems list in the state
+	if err := st.Get("tried-systems", &triedSystems); err != nil {
+		return fmt.Errorf("cannot obtain tried recovery systems: %v", err)
+	}
 
 	if isRemodel {
 		// so far so good, a recovery system created during remodel was

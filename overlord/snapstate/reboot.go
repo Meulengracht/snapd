@@ -332,6 +332,9 @@ func arrangeRebootAndUpdateSeed(
 	// system.
 	if seedTS != nil {
 		chain(seedTS.Create, seedTS.Create)
+		if seedTS.Verify != nil {
+			chain(seedTS.Verify, seedTS.Verify)
+		}
 	}
 
 	// then all the post-reboot tasks for essential snaps, in order
@@ -516,7 +519,12 @@ func arrangeRebootAndUpdateSeed(
 		}
 	}
 
-	tasks := append([]*state.Task{seedTS.Create, seedTS.Finalize}, seedTS.Remove...)
+	tasks := []*state.Task{seedTS.Create}
+	if seedTS.Verify != nil {
+		tasks = append(tasks, seedTS.Verify)
+	}
+	tasks = append(tasks, seedTS.Finalize)
+	tasks = append(tasks, seedTS.Remove...)
 	return state.NewTaskSet(tasks...), nil
 }
 

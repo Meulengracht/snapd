@@ -63,6 +63,7 @@ import (
 	"github.com/snapcore/snapd/snap/naming"
 	"github.com/snapcore/snapd/snap/snaptest"
 	"github.com/snapcore/snapd/strutil"
+	"github.com/snapcore/snapd/systemd"
 	"github.com/snapcore/snapd/testutil"
 )
 
@@ -1894,7 +1895,7 @@ func (s *deviceMgrSystemsCreateSuite) TestDeviceManagerCreateRecoverySystemSeedR
 
 	s.mockRestartAndSettle(c, s.state, chg)
 
-	c.Assert(chg.Err(), IsNil)
+	c.Check(chg.Err(), IsNil)
 	c.Check(chg.IsReady(), Equals, true)
 	c.Assert(create.Status(), Equals, state.DoneStatus)
 	c.Assert(finalize.Status(), Equals, state.DoneStatus)
@@ -3113,10 +3114,126 @@ func (s *deviceMgrSystemsCreateSuite) TestDeviceManagerCreateRecoverySystemErrCl
 	})
 }
 
-func (s *deviceMgrSystemsCreateSuite) TestDeviceManagerCreateRecoverySystemReboot(c *C) {
+func (s *deviceMgrSystemsCreateSuite) TestDeviceManagerCreateRunSystemRebootAndPromote(c *C) {
 	restore := devicestate.SetBootOkRanForCurrentBootID(s.mgr, true)
 	defer restore()
 
+	runSystemDir := filepath.Join(dirs.SnapdStateDir(dirs.GlobalRootDir), "systems", "poc-b")
+	var prepared *devicestate.RecoverySystemSetup
+	var teardownCalled bool
+	restore = devicestate.MockPrepareRunSystemUnits(func(setup *devicestate.RecoverySystemSetup) error {
+		prepared = setup
+		return nil
+	})
+	defer restore()
+	restore = devicestate.MockTeardownTryingRunSystemUnits(func(label string) error {
+		c.Check(label, Equals, "poc-b")
+		teardownCalled = true
+		c.Check(osutil.FileExists(filepath.Join(runSystemDir, "seed-refresh-verified")), Equals, true)
+		return nil
+	})
+	defer restore()
+
+	s.state.Lock()
+	s.mockStandardSnapsModeenvAndBootloaderState(c)
+	c.Assert(s.bootloader.SetBootVars(map[string]string{"run_system": "poc-a"}), IsNil)
+
+	chg, err := devicestate.CreateRecoverySystem(s.state, "poc-b", devicestate.CreateRecoverySystemOptions{
+		TestSystem:  true,
+		SeedRefresh: true,
+		RunSystem: &snapstate.RunSystemSeedRefresh{
+			AcceptedLabel:  "poc-a",
+			CandidateLabel: "poc-b",
+			SnapNames:      []string{"some-snap"},
+		},
+	})
+	c.Assert(err, IsNil)
+	c.Assert(chg.Tasks(), HasLen, 3)
+	create, verify, finalize := chg.Tasks()[0], chg.Tasks()[1], chg.Tasks()[2]
+	c.Check(verify.Kind(), Equals, "verify-run-system")
+
+	s.state.Unlock()
+	s.settle(c)
+	s.state.Lock()
+
+	c.Assert(chg.Err(), IsNil)
+	c.Assert(prepared, NotNil)
+	c.Check(prepared.Label, Equals, "poc-b")
+	c.Check(create.Status(), Equals, state.WaitStatus)
+	c.Check(verify.Status(), Equals, state.DoStatus)
+	c.Check(finalize.Status(), Equals, state.DoStatus)
+	vars, err := s.bootloader.GetBootVars("run_system", "try_run_system")
+	c.Assert(err, IsNil)
+	c.Check(vars, DeepEquals, map[string]string{"run_system": "poc-a", "try_run_system": "poc-b"})
+
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.WriteFile(marker, []byte("poc-b\n"), 0644), IsNil)
+	c.Assert(s.bootloader.SetBootVars(map[string]string{"try_run_system": ""}), IsNil)
+	statusDir := runSystemDir
+	c.Assert(os.MkdirAll(statusDir, 0755), IsNil)
+	c.Assert(os.WriteFile(filepath.Join(statusDir, "status.json"), []byte(`{"result":"prepared"}`), 0644), IsNil)
+
+	s.mockRestartAndSettle(c, s.state, chg)
+	defer s.state.Unlock()
+
+	c.Check(chg.Err(), IsNil)
+	c.Check(chg.IsReady(), Equals, true)
+	c.Check(verify.Status(), Equals, state.DoneStatus)
+	c.Check(teardownCalled, Equals, true)
+	c.Check(finalize.Status(), Equals, state.DoneStatus)
+	vars, err = s.bootloader.GetBootVars("run_system", "try_run_system")
+	c.Assert(err, IsNil)
+	c.Check(vars, DeepEquals, map[string]string{"run_system": "poc-b", "try_run_system": ""})
+}
+
+func (s *deviceMgrSystemsCreateSuite) TestPrepareRunSystemUnits(c *C) {
+	const snapName = "test-snapd-sh-core26"
+	si := &snap.SideInfo{RealName: snapName, Revision: snap.R(2)}
+	snapPath := snaptest.MakeTestSnapWithFiles(c, `
+name: test-snapd-sh-core26
+version: B
+base: core26
+confinement: devmode
+apps:
+  svc:
+    command: bin/service
+    daemon: simple
+`, [][]string{{"bin/service", "#!/bin/sh\n"}})
+
+	restore := devicestate.MockSeedOpen(func(seedDir, label string) (seed.Seed, error) {
+		c.Check(seedDir, Equals, boot.InitramfsUbuntuSeedDir)
+		c.Check(label, Equals, "poc-b")
+		return &fakeSeed{essentialSnaps: []*seed.Snap{{Path: snapPath, SideInfo: si}}}, nil
+	})
+	defer restore()
+
+	setup := &devicestate.RecoverySystemSetup{
+		Label: "poc-b",
+		RunSystem: &snapstate.RunSystemSeedRefresh{
+			AcceptedLabel:  "poc-a",
+			CandidateLabel: "poc-b",
+			SnapNames:      []string{snapName},
+		},
+	}
+	c.Assert(devicestate.PrepareRunSystemUnits(setup), IsNil)
+
+	unitDir := filepath.Join(dirs.SnapdStateDir(dirs.GlobalRootDir), "systems", "poc-b", "systemd", "system")
+	servicePath := filepath.Join(unitDir, "snap.test-snapd-sh-core26.svc.service")
+	c.Check(servicePath, testutil.FileContains, "ExecStart=/usr/bin/snap run --run-system=poc-b --revision=2 test-snapd-sh-core26.svc")
+	c.Check(servicePath, testutil.FileContains, "snapd-run-system-finalize.service")
+	mountPoint := dirs.StripRootDir(filepath.Join(dirs.SnapMountDir, snapName, "2"))
+	mountUnit := systemd.EscapeUnitNamePath(mountPoint) + ".mount"
+	c.Check(filepath.Join(unitDir, mountUnit), testutil.FileContains, "What="+snapPath)
+	c.Check(filepath.Join(unitDir, "snapd-run-system-finalize.service"), testutil.FileContains, "prepare-only")
+	c.Check(filepath.Join(dirs.SnapdStateDir(dirs.GlobalRootDir), "systems", "poc-b.tmp"), testutil.FileAbsent)
+
+	// A fully published directory is idempotent and is never rebuilt in place.
+	c.Assert(devicestate.PrepareRunSystemUnits(setup), IsNil)
+}
+
+func (s *deviceMgrSystemsCreateSuite) TestDeviceManagerCreateRecoverySystemReboot(c *C) {
+	restore := devicestate.SetBootOkRanForCurrentBootID(s.mgr, true)
+	defer restore()
 	s.state.Lock()
 	chg, err := devicestate.CreateRecoverySystem(s.state, "1234reboot", devicestate.CreateRecoverySystemOptions{
 		TestSystem: true,

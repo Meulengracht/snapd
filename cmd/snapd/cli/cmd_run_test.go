@@ -32,6 +32,7 @@ import (
 
 	"gopkg.in/check.v1"
 
+	"github.com/snapcore/snapd/boot"
 	snaprun "github.com/snapcore/snapd/cmd/snapd/cli"
 	"github.com/snapcore/snapd/cmd/snaplock/runinhibit"
 	"github.com/snapcore/snapd/dirs"
@@ -283,6 +284,40 @@ func (s *RunSuite) TestSnapRunAppIntegration(c *check.C) {
 		"snapname.app", "--arg1", "arg2"})
 	c.Check(execEnv, testutil.Contains, "SNAP_REVISION=x2")
 	c.Check(execEnv, testutil.Contains, fmt.Sprintf("TMPDIR=%s", tmpdir))
+}
+
+func (s *RunSuite) TestSnapRunAppForRunSystemUsesRequestedRevision(c *check.C) {
+	defer mockSnapConfine(dirs.DistroLibExecDir)()
+
+	snaptest.MockSnapCurrent(c, string(mockYamlForNameBase("snapname", "")), &snap.SideInfo{Revision: snap.R("x2")})
+	snaptest.MockSnap(c, string(mockYamlForNameBase("snapname", "")), &snap.SideInfo{Revision: snap.R("x3")})
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.MkdirAll(filepath.Dir(marker), 0755), check.IsNil)
+	c.Assert(os.WriteFile(marker, []byte("poc-b\n"), 0644), check.IsNil)
+
+	var execEnv []string
+	restorer := snaprun.MockSyscallExec(func(_ string, _ []string, envv []string) error {
+		execEnv = envv
+		return nil
+	})
+	defer restorer()
+
+	_, err := snaprun.Parser(snaprun.Client()).ParseArgs([]string{
+		"run", "--run-system=poc-b", "--revision=x3", "--", "snapname.app",
+	})
+	c.Assert(err, check.IsNil)
+	c.Check(execEnv, testutil.Contains, "SNAP_REVISION=x3")
+}
+
+func (s *RunSuite) TestSnapRunAppForRunSystemRejectsWrongBoot(c *check.C) {
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.MkdirAll(filepath.Dir(marker), 0755), check.IsNil)
+	c.Assert(os.WriteFile(marker, []byte("poc-a\n"), 0644), check.IsNil)
+
+	_, err := snaprun.Parser(snaprun.Client()).ParseArgs([]string{
+		"run", "--run-system=poc-b", "--revision=x3", "--", "snapname.app",
+	})
+	c.Assert(err, check.ErrorMatches, `cannot run snap revision for run system "poc-b" while booted into "poc-a"`)
 }
 
 func checkHintFileNotLocked(c *check.C, snapName string) {
