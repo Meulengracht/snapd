@@ -6,15 +6,16 @@ set -eu
 # test state and mutable helpers are seeded through core26's factory writable
 # tree and copied into ubuntu-data during first-boot initialization.
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-input_snap=${1:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B}
-output_snap=${2:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B}
-test_snap_b=${3:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B}
+input_snap=${1:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B TEST-SNAP-B-ASSERT}
+output_snap=${2:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B TEST-SNAP-B-ASSERT}
+test_snap_b=${3:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B TEST-SNAP-B-ASSERT}
+test_snap_b_assert=${4:?usage: repack-core26.sh INPUT-CORE26 OUTPUT-CORE26 TEST-SNAP-B TEST-SNAP-B-ASSERT}
 
 # Re-enter under fakeroot when called by an unprivileged developer. Snap
 # skeleton validation and the reconstructed squashfs must observe root-owned
 # system files even though the extraction directory belongs to the caller.
 if [ "$(id -u)" -ne 0 ] && [ -z "${FAKEROOTKEY-}" ]; then
-    exec fakeroot "$0" "$input_snap" "$output_snap" "$test_snap_b"
+    exec fakeroot "$0" "$input_snap" "$output_snap" "$test_snap_b" "$test_snap_b_assert"
 fi
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/core26-poc.XXXXXXXX")
@@ -43,6 +44,8 @@ install -D -m 0755 "$script_dir/run-ab-test.sh" \
     "$factory_data/var/lib/snapd/boot-from-seed-poc/run-ab-test.sh"
 install -D -m 0644 "$test_snap_b" \
     "$factory_data/var/lib/snapd/boot-from-seed-poc/test-snap-b.snap"
+install -D -m 0644 "$test_snap_b_assert" \
+    "$factory_data/var/lib/snapd/boot-from-seed-poc/test-snap-b.assert"
 
 # A tmpfiles C directive copies a factory file only when the destination does
 # not already exist. This installs the helpers on first boot without replacing
@@ -53,6 +56,7 @@ C /writable/system-data/var/lib/snapd/boot-from-seed-poc/finalize-run-system
 C /writable/system-data/var/lib/snapd/boot-from-seed-poc/rollback-run-system
 C /writable/system-data/var/lib/snapd/boot-from-seed-poc/run-ab-test.sh
 C /writable/system-data/var/lib/snapd/boot-from-seed-poc/test-snap-b.snap
+C /writable/system-data/var/lib/snapd/boot-from-seed-poc/test-snap-b.assert
 EOF
 
 # Autostart is optional because spread starts the test explicitly after device

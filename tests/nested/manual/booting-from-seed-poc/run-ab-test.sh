@@ -4,17 +4,18 @@ set -eu
 # This driver is installed in the UC26 guest and resumed by a systemd service
 # after every reboot. Its phase file is the transaction log for the test: each
 # next phase is persisted before rebooting, then validated against both the
-# initramfs boot marker and snapd's accepted run-system state.
-state_dir=/var/lib/snapd/boot-from-seed-poc
-phase_file="$state_dir/phase"
-result_file="$state_dir/result.json"
-# snap-bootstrap writes this volatile marker for the seed used by this boot.
-marker=/run/snapd/booted-run-seed
+# initramfs boot MARKER_FILE and snapd's accepted run-system state.
+STATE_DIR=/var/lib/snapd/boot-from-seed-poc
+PHASE_FILE="$STATE_DIR/phase"
+RESULT_FILE="$STATE_DIR/result.json"
+CHANGE_FILE="$STATE_DIR/refresh-change"
+ACCEPTED_FILE="$STATE_DIR/accepted-system"
+# snap-bootstrap writes this volatile MARKER_FILE for the seed used by this boot.
+MARKER_FILE=/run/snapd/booted-run-seed
 # Candidate seeds are deliberately staged through the mounted seed partition,
 # not through the read-only view exposed elsewhere during run mode.
-seed_root=/run/mnt/ubuntu-seed
-poc_root=/var/lib/snapd/boot-from-seed-poc
-autostart_marker="$poc_root/autostart"
+SEED_ROOT_DIR=/run/mnt/ubuntu-seed
+AUTOSTART_MARKER_FILE="$STATE_DIR/autostart"
 
 # The serial console survives SSH disconnects and guest reboots, making these
 # messages the primary diagnostics when a spread run cannot reconnect.
@@ -63,8 +64,8 @@ require_root() {
 # ensures the next boot never observes a partial write or repeats the prior
 # phase because the write was still buffered.
 set_phase() {
-    printf '%s\n' "$1" > "$phase_file.tmp"
-    mv "$phase_file.tmp" "$phase_file"
+    printf '%s\n' "$1" > "$PHASE_FILE.tmp"
+    mv "$PHASE_FILE.tmp" "$PHASE_FILE"
     sync
 }
 
@@ -72,7 +73,7 @@ set_phase() {
 # answers "which seed has userspace accepted for future boots?". Comparing both
 # is essential when validating one-shot candidate behavior.
 booted_system() {
-    cat "$marker" 2>/dev/null || true
+    cat "$MARKER_FILE" 2>/dev/null || true
 }
 
 current_system() {
@@ -86,8 +87,8 @@ wait_for_service_revision() {
     expected="$1"
     attempts=30
     while [ "$attempts" -gt 0 ]; do
-        if [ -s "$state_dir/active-service" ] &&
-           [ "$(awk '{print $2}' "$state_dir/active-service")" = "$expected" ]; then
+        if [ -s "$STATE_DIR/active-service" ] &&
+           [ "$(awk '{print $2}' "$STATE_DIR/active-service")" = "$expected" ]; then
             return 0
         fi
         attempts=$((attempts - 1))
@@ -103,14 +104,14 @@ wait_for_service_revision() {
 # content used by this PoC.
 seed_snap_path() {
     label="$1"
-    private_snap=$(find "$seed_root/systems/$label/snaps" -maxdepth 1 -type f -name 'test-snap*.snap' -print -quit 2>/dev/null || true)
+    private_snap=$(find "$SEED_ROOT_DIR/systems/$label/snaps" -maxdepth 1 -type f -name 'test-snap*.snap' -print -quit 2>/dev/null || true)
     if [ -n "$private_snap" ]; then
         printf '%s\n' "$private_snap"
         return
     fi
 
     revision=$(snap list test-snapd-sh-core26 --unicode=never | awk 'NR == 2 { print $3 }')
-    shared_snap="$seed_root/snaps/test-snapd-sh-core26_${revision}.snap"
+    shared_snap="$SEED_ROOT_DIR/snaps/test-snapd-sh-core26_${revision}.snap"
     if [ ! -f "$shared_snap" ]; then
         echo "cannot locate test-snap in system seed $label" >&2
         return 1
@@ -125,12 +126,12 @@ stage_test_snap() {
     label="$1"
     if [ "$label" = poc-b ]; then
         revision=poc-b
-        source_snap="$poc_root/test-snap-b.snap"
+        source_snap="$STATE_DIR/test-snap-b.snap"
     else
         revision=$(snap list test-snapd-sh-core26 --unicode=never | awk 'NR == 2 { print $3 }')
         source_snap="/var/lib/snapd/snaps/test-snapd-sh-core26_${revision}.snap"
     fi
-    destination_dir="$seed_root/systems/$label/snaps"
+    destination_dir="$SEED_ROOT_DIR/systems/$label/snaps"
     console_log "staging test snap revision=$revision source=$source_snap destination=$destination_dir"
     if [ ! -f "$source_snap" ]; then
         console_log "cannot locate installed test snap $source_snap"
@@ -153,7 +154,7 @@ generate_system_units() {
         revision=$(snap list test-snapd-sh-core26 --unicode=never | awk 'NR == 2 { print $3 }')
     fi
     snap_path=$(seed_snap_path "$label")
-    units="$state_dir/../systems/$label/systemd/system"
+    units="$STATE_DIR/../systems/$label/systemd/system"
     mount_where="/snap/test-snapd-sh-core26/$revision"
     # systemd requires the mount unit filename to be the escaped mount path;
     # constructing it here also exercises the generator's handling of names
@@ -186,7 +187,7 @@ OnFailure=snapd-run-system-rollback.service
 
 [Service]
 Type=oneshot
-ExecStart=$poc_root/finalize-run-system $label $revision
+ExecStart=$STATE_DIR/finalize-run-system $label $revision
 RemainAfterExit=yes
 EOF
 
@@ -212,7 +213,7 @@ EOF
 # prototypes seed-private application content outside signed seed metadata.
 create_system() {
     label="$1"
-    if [ ! -d "$seed_root/systems/$label" ]; then
+    if [ ! -d "$SEED_ROOT_DIR/systems/$label" ]; then
         console_log "waiting for snapd changes before creating $label"
         wait_for_snapd_changes
         run_logged snap debug create-system-seed "$label"
@@ -230,15 +231,60 @@ reboot_for_phase() {
     systemctl --no-block reboot
 }
 
+# Start a normal local snap refresh. Because the test snap is a model member and
+# seed-refresh is enabled, snapd creates the complete B seed and its generated
+# run-system state before changing the live A installation. The change ID lets
+# later boots prove whether the transaction committed or rolled back.
+start_seed_refresh() {
+    next_phase="$1"
+    wait_for_snapd_changes
+    console_log "starting seed-refresh from bundled B snap"
+    snap ack "$STATE_DIR/test-snap-b.assert"
+    if change_id=$(snap install --devmode --no-wait "$STATE_DIR/test-snap-b.snap" 2>&1); then
+        printf '%s\n' "$change_id" > "$CHANGE_FILE.tmp"
+        mv "$CHANGE_FILE.tmp" "$CHANGE_FILE"
+        set_phase "$next_phase"
+        sync
+        console_log "seed-refresh change=$change_id"
+        return 0
+    fi
+    console_log "cannot start seed-refresh: $change_id"
+    return 1
+}
+
+wait_for_refresh_terminal() {
+    expected="$1"
+    change_id=$(cat "$CHANGE_FILE")
+    attempts=180
+    while [ "$attempts" -gt 0 ]; do
+        status=$(snap changes | awk -v id="$change_id" '$1 == id { print $2 }')
+        case "$status" in
+            Done)
+                [ "$expected" = success ]
+                return
+                ;;
+            Error|Undone)
+                [ "$expected" = failure ]
+                return
+                ;;
+        esac
+        attempts=$((attempts - 1))
+        sleep 1
+    done
+    console_log "timed out waiting for seed-refresh change=$change_id"
+    snap change "$change_id" 2>&1 | while IFS= read -r line; do console_log "$line"; done
+    return 1
+}
+
 # Drive one idempotent state-machine step per boot. The systemd service invokes
 # resume automatically; start only initializes the first phase.
 resume() {
-    if [ ! -s "$phase_file" ]; then
-        [ -e "$autostart_marker" ] || return 0
-        mkdir -p "$state_dir"
+    if [ ! -s "$PHASE_FILE" ]; then
+        [ -e "$AUTOSTART_MARKER_FILE" ] || return 0
+        mkdir -p "$STATE_DIR"
         set_phase create-a
     fi
-    phase=$(cat "$phase_file")
+    phase=$(cat "$PHASE_FILE")
     console_log "phase=$phase booted=$(booted_system) current=$(current_system)"
 
     case "$phase" in
@@ -250,55 +296,59 @@ resume() {
             reboot_for_phase verify-a
             ;;
         verify-a)
-            # A's first boot must already be accepted by its finalizer. Build B
-            # only after proving A's payload is active, then force B finalization
-            # to fail on its first one-shot boot.
+            # A's first boot must already be accepted by its finalizer. Refresh
+            # the model snap through seed-refresh, forcing the dynamically
+            # labelled B candidate to fail its first finalization.
             [ "$(booted_system)" = poc-a ]
             [ "$(current_system)" = poc-a ]
             wait_for_service_revision A
-            create_system poc-b
-            touch "$state_dir/fail-finalization"
-            run_logged snap debug try-system-seed poc-b
-            reboot_for_phase verify-b-fallback
+            snap set core experimental.seed-refresh=true
+            touch "$STATE_DIR/fail-finalization"
+            start_seed_refresh verify-b-fallback
             ;;
         verify-b-fallback)
             # The failure and rollback services run during B's first boot. If
             # this invocation still runs on B, reboot once more: GRUB consumed
             # the one-shot selection and the next boot must return to A.
-            if [ "$(booted_system)" = poc-b ]; then
-                console_log "candidate poc-b was not accepted; rebooting to poc-a"
-                systemctl --no-block reboot
+            if [ "$(booted_system)" != poc-a ]; then
+                console_log "candidate $(booted_system) was not accepted; waiting for rollback reboot"
                 return 0
             fi
-            # Back on A, prove B was not accepted and rollback recorded the
-            # failed label. Remove the injected failure and retry the same seed.
+            # Back on A, prove the refresh did not commit and rollback recorded
+            # the dynamic B label. Remove the injected failure and run the same
+            # ordinary refresh again, which creates a fresh candidate label.
             [ "$(booted_system)" = poc-a ]
             [ "$(current_system)" = poc-a ]
-            [ "$(cat "$state_dir/last-failed-system")" = poc-b ]
+            [ -s "$STATE_DIR/last-failed-system" ]
+            wait_for_refresh_terminal failure
             wait_for_service_revision A
-            rm -f "$state_dir/fail-finalization"
-            run_logged snap debug try-system-seed poc-b
-            reboot_for_phase verify-b-accepted
+            rm -f "$STATE_DIR/fail-finalization"
+            start_seed_refresh verify-b-accepted
             ;;
         verify-b-accepted)
-            # Successful finalization promotes B from try_run_system to
-            # run_system. Reboot once more to distinguish acceptance from a
-            # merely successful one-shot candidate boot.
-            [ "$(booted_system)" = poc-b ]
-            [ "$(current_system)" = poc-b ]
+            # The successful retry resumes the original refresh on B. Wait for
+            # all normal refresh work and final promotion before asserting that
+            # the dynamically selected seed became accepted.
+            candidate=$(booted_system)
+            [ -n "$candidate" ]
+            [ "$candidate" != poc-a ]
+            wait_for_refresh_terminal success
+            [ "$(current_system)" = "$candidate" ]
             wait_for_service_revision B
+            printf '%s\n' "$candidate" > "$ACCEPTED_FILE"
             reboot_for_phase verify-b-persistent
             ;;
         verify-b-persistent)
             # B must remain both the booted and accepted system without a try
             # variable. Its B payload is the final end-to-end assertion.
-            [ "$(booted_system)" = poc-b ]
-            [ "$(current_system)" = poc-b ]
+            candidate=$(cat "$ACCEPTED_FILE")
+            [ "$(booted_system)" = "$candidate" ]
+            [ "$(current_system)" = "$candidate" ]
             wait_for_service_revision B
-            printf '{"result":"PASS","accepted":"poc-b"}\n' > "$result_file.tmp"
-            mv "$result_file.tmp" "$result_file"
+            printf '{"result":"PASS","accepted":"%s"}\n' "$candidate" > "$RESULT_FILE.tmp"
+            mv "$RESULT_FILE.tmp" "$RESULT_FILE"
             set_phase "done"
-            console_log 'result=PASS accepted=poc-b'
+            console_log "result=PASS accepted=$candidate"
             ;;
         done)
             ;;
@@ -315,8 +365,8 @@ case "$command" in
     start)
         # Reset transient evidence but retain generated system seeds so a
         # rerun can exercise the driver's idempotent create path.
-        mkdir -p "$state_dir"
-        rm -f "$result_file" "$state_dir/fail-finalization" "$state_dir/last-failed-system"
+        mkdir -p "$STATE_DIR"
+        rm -f "$RESULT_FILE" "$CHANGE_FILE" "$ACCEPTED_FILE" "$STATE_DIR/fail-finalization" "$STATE_DIR/last-failed-system"
         set_phase create-a
         systemctl restart --no-block boot-from-seed-poc-test.service
         ;;
@@ -325,10 +375,10 @@ case "$command" in
         ;;
     status)
         # Emit one compact JSON object for spread's retry/MATCH loop.
-        if [ -s "$result_file" ]; then
-            cat "$result_file"
-        elif [ -s "$phase_file" ]; then
-            printf '{"result":"RUNNING","phase":"%s"}\n' "$(cat "$phase_file")"
+        if [ -s "$RESULT_FILE" ]; then
+            cat "$RESULT_FILE"
+        elif [ -s "$PHASE_FILE" ]; then
+            printf '{"result":"RUNNING","phase":"%s"}\n' "$(cat "$PHASE_FILE")"
         else
             printf '{"result":"NOT-STARTED"}\n'
         fi
@@ -337,7 +387,7 @@ case "$command" in
         # Reset driver state only; generated seeds are intentionally preserved
         # for inspection and must be removed separately if a pristine run is
         # required.
-        rm -rf "$state_dir"
+        rm -rf "$STATE_DIR"
         ;;
     *)
         echo "usage: $0 {start|resume|status|reset}" >&2

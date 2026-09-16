@@ -17,11 +17,16 @@ fi
 artifacts_dir=${1:-"$script_dir/artifacts"}
 core26_channel=${POC_CORE26_CHANNEL:-cloud-init/edge}
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/boot-from-seed-image.XXXXXXXX")
+fakestore_pid=
 
 # KEEP_POC_WORK is useful when inspecting an ubuntu-image or snap repack
 # failure. Normal runs remove the directory because it contains several
 # unpacked snaps and a sparse disk image.
 cleanup() {
+    if [ -n "$fakestore_pid" ]; then
+        kill "$fakestore_pid" 2>/dev/null || true
+        wait "$fakestore_pid" 2>/dev/null || true
+    fi
     if [ "${KEEP_POC_WORK-}" = 1 ]; then
         echo "keeping work directory: $work_dir"
     else
@@ -32,7 +37,7 @@ trap cleanup EXIT HUP INT TERM
 
 # Check the tools needed for every build up front. Snapcraft is checked below
 # only when this script must build snapd instead of using POC_SNAPD_SNAP.
-for command in fakeroot git go mksquashfs snap unsquashfs sha256sum; do
+for command in curl fakeroot git go mksquashfs snap unsquashfs sha256sum; do
     if ! command -v "$command" >/dev/null; then
         echo "missing required command: $command" >&2
         exit 1
@@ -46,6 +51,57 @@ artifacts_dir=$(realpath "$artifacts_dir")
 # image; revision B is bundled into the modified core snap and later staged
 # directly into the poc-b seed by the guest-side driver.
 "$script_dir/build-test-snaps.sh" "$work_dir"
+
+# Give both local test-snap revisions normal store identities. A is included in
+# the image seed; B's assertion bundle is copied into the guest and acknowledged
+# immediately before the local refresh. This exercises the asserted seed-refresh
+# path without requiring a network store during the reboot sequence.
+test_snap_id=v6fuBtBS2asZMPIHfzom0VhbHblwvQNy
+fakestore="$work_dir/fakestore"
+(cd "$repo_root" && go build -mod=readonly -o "$fakestore" ./tests/lib/fakestore/cmd/fakestore)
+assertion_dir="$work_dir/fake-store"
+mkdir -p "$assertion_dir/asserts"
+cp "$repo_root/tests/lib/assertions/testrootorg-store.account-key" \
+    "$repo_root/tests/lib/assertions/developer1.account" \
+    "$repo_root/tests/lib/assertions/developer1.account-key" \
+    "$assertion_dir/asserts/"
+for revision in 1 2; do
+    case "$revision" in
+        1) snap_path="$work_dir/test-snap-A.snap" ;;
+        2) snap_path="$work_dir/test-snap-B.snap" ;;
+    esac
+    cat > "$work_dir/snap-declaration-$revision.json" <<EOF
+{"snap-id":"$test_snap_id","publisher-id":"developer1","snap-name":"test-snapd-sh-core26"}
+EOF
+    cat > "$work_dir/snap-revision-$revision.json" <<EOF
+{"snap-id":"$test_snap_id","snap-revision":"$revision"}
+EOF
+    "$fakestore" new-snap-declaration --dir="$assertion_dir" \
+        --snap-decl-json="$work_dir/snap-declaration-$revision.json" "$snap_path" >/dev/null
+    "$fakestore" new-snap-revision --dir="$assertion_dir" \
+        --snap-rev-json="$work_dir/snap-revision-$revision.json" "$snap_path" >/dev/null
+    cp "$snap_path" "$assertion_dir/test-snapd-sh-core26_${revision}.snap"
+done
+
+: > "$work_dir/test-snap-B.assert"
+for assertion in "$assertion_dir"/asserts/*; do
+    cat "$assertion" >> "$work_dir/test-snap-B.assert"
+    printf '\n' >> "$work_dir/test-snap-B.assert"
+done
+
+fakestore_addr=${POC_FAKESTORE_ADDR:-127.0.0.1:11028}
+fakestore_url="http://$fakestore_addr"
+"$fakestore" run --dir "$assertion_dir" --addr "$fakestore_addr" --assert-fallback &
+fakestore_pid=$!
+attempts=30
+until curl -sS "$fakestore_url/" >/dev/null 2>&1; do
+    if ! kill -0 "$fakestore_pid" 2>/dev/null || [ "$attempts" -eq 0 ]; then
+        echo "cannot start fake store at $fakestore_url" >&2
+        exit 1
+    fi
+    attempts=$((attempts - 1))
+    sleep 1
+done
 
 # The PoC exercises snap-bootstrap and userspace changes from this checkout, so
 # use a caller-provided snapd snap or build one locally. Copying it into the work
@@ -100,12 +156,14 @@ gadget_snap="$work_dir/pc-poc.snap"
 "$script_dir/repack-core26.sh" \
     "$work_dir/downloads/core26.snap" \
     "$work_dir/core26-poc.snap" \
-    "$work_dir/test-snap-B.snap"
+    "$work_dir/test-snap-B.snap" \
+    "$work_dir/test-snap-B.assert"
 
-# Use the repository's dangerous UC26 model so locally repacked and test-key
-# snaps can be assembled without changing the host assertion database.
-cp "$repo_root/tests/lib/assertions/ubuntu-core-26-amd64.model" \
-    "$work_dir/model.assert"
+# Sign the PoC's dangerous model with the repository test key. Declaring the
+# test snap in the model makes normal seed-refresh policy classify its refresh
+# as part of the A/B candidate instead of treating it as an unrelated snap.
+(cd "$repo_root" && go run -mod=readonly ./tests/lib/gendeveloper1 sign-model --root-key \
+    < "$script_dir/model.json" > "$work_dir/model.assert")
 
 # ubuntu-image must use this checkout's snapd packages because the PoC extends
 # image/seed handling as well as runtime snapd. UBUNTU_IMAGE allows repeated
@@ -125,7 +183,7 @@ fi
 # Assemble the actual 10 GiB bootable image. The initial system contains A;
 # the guest test later creates complete poc-a and poc-b run-system seeds from
 # this installed state and selects them through the boot environment.
-SNAPD_DEBUG=1 "$ubuntu_image" snap \
+UBUNTU_STORE_URL="$fakestore_url" SNAPD_DEBUG=1 "$ubuntu_image" snap \
     --image-size 10G \
     --output-dir "$work_dir/image" \
     --snap "$gadget_snap" \
@@ -164,7 +222,7 @@ cat > "$artifacts_dir/build-manifest.json" <<EOF
   "base": "core26",
   "gadget-channel": "26/edge",
   "kernel-channel": "26/edge",
-    "base-channel": "$core26_channel",
+  "base-channel": "$core26_channel",
   "image-sha256": "$image_sha",
   "snapd-sha256": "$snapd_sha",
   "core26-sha256": "$core_sha"

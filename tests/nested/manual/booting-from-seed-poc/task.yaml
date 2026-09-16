@@ -70,7 +70,7 @@ execute: |
   # let's wait for the marker to be emitted
   retry -n 360 --wait 5 sh -c '
     remote.exec "sudo /var/lib/snapd/boot-from-seed-poc/run-ab-test.sh status" |
-      MATCH "{\"result\":\"PASS\",\"accepted\":\"poc-b\"}"
+      MATCH "{\"result\":\"PASS\",\"accepted\":\"[0-9-]+\"}"
   '
 
   # get the final result and logs from the remote system
