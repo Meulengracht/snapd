@@ -21,6 +21,7 @@ package wrappers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -451,6 +452,27 @@ type SnapServiceOptions struct {
 
 	// QuotaGroup is the quota group for the specified snap.
 	QuotaGroup *quota.Group
+}
+
+// RunSystemServiceOptions controls generation of a service unit for an
+// inactive A/B run-system candidate.
+type RunSystemServiceOptions struct {
+	RunSystemLabel  string
+	Revision        snap.Revision
+	FinalizeService string
+}
+
+// GenerateRunSystemServiceUnit generates service unit content without writing
+// it to the live systemd configuration or reloading systemd.
+func GenerateRunSystemServiceUnit(app *snap.AppInfo, opts *RunSystemServiceOptions) ([]byte, error) {
+	if opts == nil {
+		return nil, errors.New("internal error: missing run-system service options")
+	}
+	return internal.GenerateSnapServiceUnitFile(app, &internal.SnapServicesUnitOptions{
+		SnapRevision:             opts.Revision,
+		RunSystemLabel:           opts.RunSystemLabel,
+		RunSystemFinalizeService: opts.FinalizeService,
+	})
 }
 
 // ObserveChangeCallback can be invoked by EnsureSnapServices to observe

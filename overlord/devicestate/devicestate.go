@@ -1687,6 +1687,9 @@ type recoverySystemSetup struct {
 	// of seed-refresh mode. This enables recording seeded-system state in
 	// finalize.
 	SeedRefresh bool `json:"seed-refresh,omitempty"`
+	// RunSystem is set when seed-refresh is preparing an A/B run-system
+	// candidate. It records the accepted fallback and labels.
+	RunSystem *snapstate.RunSystemSeedRefresh `json:"run-system,omitempty"`
 }
 
 func pickRecoverySystemLabel(labelBase string) (string, error) {
@@ -1771,6 +1774,11 @@ func SeedRefreshTasks(
 		return nil, nil, nil
 	}
 
+	runSystemCtx, err := boot.CurrentRunSystemContext()
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot determine run-system seed-refresh context: %v", err)
+	}
+
 	seedAllowlist, err := allowlist()
 	if err != nil {
 		return nil, nil, err
@@ -1782,21 +1790,38 @@ func SeedRefreshTasks(
 		return nil, nil, fmt.Errorf("cannot select non-conflicting label for recovery system %q: %v", labelBase, err)
 	}
 
+	var runSystem *snapstate.RunSystemSeedRefresh
+	if runSystemCtx != nil {
+		snapNames := make([]string, 0, len(added))
+		for name := range added {
+			snapNames = append(snapNames, name)
+		}
+		sort.Strings(snapNames)
+		runSystem = &snapstate.RunSystemSeedRefresh{
+			AcceptedLabel:  runSystemCtx.Accepted,
+			CandidateLabel: label,
+			SnapNames:      snapNames,
+		}
+	}
+
 	ts, err := createRecoverySystemTasks(st, label, snapsups, compsups, CreateRecoverySystemOptions{
 		Allowlist:   &seedAllowlist,
 		TestSystem:  true,
-		MarkDefault: true,
+		MarkDefault: runSystem == nil,
 		SeedRefresh: true,
+		RunSystem:   runSystem,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var create, finalize *state.Task
+	var create, verify, finalize *state.Task
 	for _, t := range ts.Tasks() {
 		switch t.Kind() {
 		case "create-recovery-system":
 			create = t
+		case "verify-run-system":
+			verify = t
 		case "finalize-recovery-system":
 			finalize = t
 		}
@@ -1810,6 +1835,15 @@ func SeedRefreshTasks(
 	if err != nil {
 		return nil, nil, err
 	}
+	if runSystem != nil {
+		filtered := removeLabels[:0]
+		for _, removeLabel := range removeLabels {
+			if removeLabel != runSystem.AcceptedLabel {
+				filtered = append(filtered, removeLabel)
+			}
+		}
+		removeLabels = filtered
+	}
 
 	removals := make([]*state.Task, 0, len(removeLabels))
 	for _, l := range removeLabels {
@@ -1819,9 +1853,11 @@ func SeedRefreshTasks(
 	}
 
 	return &snapstate.SeedRefreshTasks{
-		Create:   create,
-		Finalize: finalize,
-		Remove:   removals,
+		Create:    create,
+		Verify:    verify,
+		Finalize:  finalize,
+		Remove:    removals,
+		RunSystem: runSystem,
 	}, added, nil
 }
 
@@ -1869,6 +1905,10 @@ func UpdateSeedRefreshChange(seedTS *snapstate.SeedRefreshTasks, dctx snapstate.
 
 	setup.SnapSetupTasks = appendUnique(setup.SnapSetupTasks, candidate.SnapSetupTaskIDs...)
 	setup.ComponentSetupTasks = appendUnique(setup.ComponentSetupTasks, compsups...)
+	if setup.RunSystem != nil && !strutil.ListContains(setup.RunSystem.SnapNames, candidate.InstanceName) {
+		setup.RunSystem.SnapNames = append(setup.RunSystem.SnapNames, candidate.InstanceName)
+		sort.Strings(setup.RunSystem.SnapNames)
+	}
 
 	if err := setTaskRecoverySystemSetup(seedTS.Create, setup); err != nil {
 		return false, err
@@ -2073,6 +2113,7 @@ func currentSeedOptionalContainers(st *state.State) (seed.OptionalContainers, er
 
 func findSeedRefreshTasks(ts *state.TaskSet) (*snapstate.SeedRefreshTasks, error) {
 	var finalize *state.Task
+	var verify *state.Task
 	var removals []*state.Task
 	for _, t := range ts.Tasks() {
 		switch t.Kind() {
@@ -2084,6 +2125,10 @@ func findSeedRefreshTasks(ts *state.TaskSet) (*snapstate.SeedRefreshTasks, error
 				return nil, errors.New("internal error: found multiple pending seed finalization tasks in change")
 			}
 			finalize = t
+		case "verify-run-system":
+			if !t.Status().Ready() {
+				verify = t
+			}
 		case "remove-recovery-system":
 			if !t.Status().Ready() {
 				removals = append(removals, t)
@@ -2116,11 +2161,17 @@ func findSeedRefreshTasks(ts *state.TaskSet) (*snapstate.SeedRefreshTasks, error
 	if create.Status() != state.DoStatus {
 		return nil, fmt.Errorf("internal error: seed-refresh creation task has already started with status %s while finalization is still pending", create.Status())
 	}
+	setup, err := taskRecoverySystemSetup(create)
+	if err != nil {
+		return nil, err
+	}
 
 	return &snapstate.SeedRefreshTasks{
-		Create:   create,
-		Finalize: finalize,
-		Remove:   removals,
+		Create:    create,
+		Verify:    verify,
+		Finalize:  finalize,
+		Remove:    removals,
+		RunSystem: setup.RunSystem,
 	}, nil
 }
 
@@ -2208,6 +2259,7 @@ func createRecoverySystemTasks(st *state.State, label string, snapSetupTasks, co
 		TestSystem:          opts.TestSystem,
 		MarkDefault:         opts.MarkDefault,
 		SeedRefresh:         opts.SeedRefresh,
+		RunSystem:           opts.RunSystem,
 	})
 
 	ts := state.NewTaskSet(create)
@@ -2216,8 +2268,17 @@ func createRecoverySystemTasks(st *state.State, label string, snapSetupTasks, co
 		// Create recovery system requires us to boot into it before finalize
 		restart.MarkTaskAsRestartBoundary(create, restart.RestartBoundaryDirectionDo)
 
+		var previous = create
+		if opts.RunSystem != nil {
+			verify := st.NewTask("verify-run-system", fmt.Sprintf("Verify run system with label %q", label))
+			verify.Set("recovery-system-setup-task", create.ID())
+			verify.WaitFor(create)
+			ts.AddTask(verify)
+			previous = verify
+		}
+
 		finalize := st.NewTask("finalize-recovery-system", fmt.Sprintf("Finalize recovery system with label %q", label))
-		finalize.WaitFor(create)
+		finalize.WaitFor(previous)
 		// finalize needs to know the label too
 		finalize.Set("recovery-system-setup-task", create.ID())
 
@@ -2278,6 +2339,9 @@ type CreateRecoverySystemOptions struct {
 	// SeedRefresh is set to true if the recovery system was created by
 	// seed-refresh mode and should update seeded-system state in finalize.
 	SeedRefresh bool
+
+	// RunSystem identifies an A/B run-system candidate created by seed-refresh.
+	RunSystem *snapstate.RunSystemSeedRefresh
 
 	// Offline is true if the recovery system should be created without reaching
 	// out to the store. Offline must be set to true if LocalSnaps is provided.

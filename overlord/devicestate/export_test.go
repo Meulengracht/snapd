@@ -368,6 +368,20 @@ func MockSeedOpen(f func(seedDir, label string) (seed.Seed, error)) (restore fun
 	return r
 }
 
+func MockPrepareRunSystemUnits(f func(setup *RecoverySystemSetup) error) (restore func()) {
+	return testutil.Mock(&prepareRunSystemUnits, func(setup *recoverySystemSetup) error {
+		return f(setup)
+	})
+}
+
+func PrepareRunSystemUnits(setup *RecoverySystemSetup) error {
+	return prepareRunSystemUnitsImpl(setup)
+}
+
+func MockTeardownTryingRunSystemUnits(f func(label string) error) (restore func()) {
+	return testutil.Mock(&teardownTryingRunSystemUnits, f)
+}
+
 func MockGadgetUpdate(mock func(model gadget.Model, current, update gadget.GadgetData, path string, policy gadget.UpdatePolicyFunc, observer gadget.ContentUpdateObserver) error) (restore func()) {
 	old := gadgetUpdate
 	gadgetUpdate = mock

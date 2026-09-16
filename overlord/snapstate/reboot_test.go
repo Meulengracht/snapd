@@ -1024,6 +1024,68 @@ func (s *rebootSuite) TestArrangeSnapInstallTaskSetsSeedRefreshAppsWaitAfterEsse
 	c.Check(firstPostPrereqsNonSeedApp.WaitTasks(), testutil.Contains, finalEssential)
 }
 
+func (s *rebootSuite) TestArrangeSnapInstallTaskSetsRunSystemSeedRefreshGate(c *C) {
+	defer snapstatetest.MockDeviceModel(MakeModel20("brand-gadget", nil))()
+	oldCreate := snapstate.CreateSeedRefreshTasks
+	defer func() { snapstate.CreateSeedRefreshTasks = oldCreate }()
+
+	s.state.Lock()
+	defer s.state.Unlock()
+	tr := config.NewTransaction(s.state)
+	c.Assert(tr.Set("core", "experimental.seed-refresh", true), IsNil)
+	tr.Commit()
+
+	var create, verify, finalize *state.Task
+	snapstate.CreateSeedRefreshTasks = func(st *state.State, _ snapstate.DeviceContext, candidates []snapstate.SeedRefreshCandidate, _ snapstate.SeedRefreshEvictionPolicy) (*snapstate.SeedRefreshTasks, map[string]bool, error) {
+		create = st.NewTask("create-recovery-system", "create B")
+		restart.MarkTaskAsRestartBoundary(create, restart.RestartBoundaryDirectionDo)
+		verify = st.NewTask("verify-run-system", "verify B")
+		verify.WaitFor(create)
+		finalize = st.NewTask("finalize-recovery-system", "accept B")
+		finalize.WaitFor(verify)
+		return &snapstate.SeedRefreshTasks{
+			Create:   create,
+			Verify:   verify,
+			Finalize: finalize,
+			RunSystem: &snapstate.RunSystemSeedRefresh{
+				AcceptedLabel:  "poc-a",
+				CandidateLabel: "poc-b",
+				SnapNames:      []string{"some-app"},
+			},
+		}, map[string]bool{"some-app": true}, nil
+	}
+
+	sts := s.snapInstallTaskSetForSnapSetup("some-app", "", snap.TypeApp)
+	seedTS, err := snapstate.ArrangeRebootAndUpdateSeed(
+		s.state,
+		[]snapstate.SnapInstallTaskSet{sts},
+		snapstate.SeedRefreshEvictionPolicy{SeedsToRetain: 1},
+		snapstate.Options{DeviceCtx: s.deviceCtx(c)},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(seedTS, NotNil)
+
+	lastBefore, err := sts.TaskSet().Edge(snapstate.LastBeforeLocalModificationsEdge)
+	c.Assert(err, IsNil)
+	begin, err := sts.TaskSet().Edge(snapstate.BeginEdge)
+	c.Assert(err, IsNil)
+	end, err := sts.TaskSet().Edge(snapstate.EndEdge)
+	c.Assert(err, IsNil)
+	var prereqSync *state.Task
+	for _, task := range sts.TaskSet().Tasks() {
+		if task.Kind() == "prerequisites" && task != begin {
+			prereqSync = task
+			break
+		}
+	}
+	c.Assert(prereqSync, NotNil)
+
+	c.Check(waitsOnTransitively(create, lastBefore), Equals, true)
+	c.Check(waitsOnTransitively(verify, create), Equals, true)
+	c.Check(waitsOnTransitively(prereqSync, verify), Equals, true)
+	c.Check(waitsOnTransitively(finalize, end), Equals, true)
+}
+
 func (s *rebootSuite) TestArrangeSnapInstallTaskSetsNoSeedRefreshBeforeLocalModificationsDeps(c *C) {
 	defer snapstatetest.MockDeviceModel(MakeModel20("brand-gadget", nil))()
 

@@ -36,6 +36,14 @@ type RunSystemState struct {
 	Try     string
 }
 
+// RunSystemContext describes an accepted A/B run-system boot. Booted is the
+// seed verified by snap-bootstrap for this boot and Accepted is the seed that
+// GRUB will select on the next ordinary boot.
+type RunSystemContext struct {
+	Booted   string
+	Accepted string
+}
+
 func runSystemBootloader() (bootloader.Bootloader, error) {
 	return bootloader.Find("", &bootloader.Options{Role: bootloader.RoleRunMode})
 }
@@ -84,6 +92,40 @@ func BootedRunSystem() (string, error) {
 		return "", err
 	}
 	return label, nil
+}
+
+// CurrentRunSystemContext returns nil when the system is not booting from a
+// named run seed. A non-nil context is returned only for a stable, accepted
+// A/B boot. Refresh planning must not start while a different candidate is
+// pending or while the verified boot marker disagrees with the accepted seed.
+func CurrentRunSystemContext() (*RunSystemContext, error) {
+	marker := filepath.Join(dirs.SnapRunDir, BootedRunSystemMarker)
+	if _, err := os.Stat(marker); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	booted, err := BootedRunSystem()
+	if err != nil {
+		return nil, fmt.Errorf("cannot identify booted run system: %v", err)
+	}
+	state, err := CurrentRunSystem()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read run-system boot state: %v", err)
+	}
+	if state.Current == "" {
+		return nil, fmt.Errorf("booted run system %q has no accepted run system", booted)
+	}
+	if booted != state.Current {
+		return nil, fmt.Errorf("booted run system %q does not match accepted run system %q", booted, state.Current)
+	}
+	if state.Try != "" && state.Try != state.Current {
+		return nil, fmt.Errorf("cannot plan run-system refresh while %q is pending", state.Try)
+	}
+
+	return &RunSystemContext{Booted: booted, Accepted: state.Current}, nil
 }
 
 func PromoteTriedRunSystem(systemLabel string) error {

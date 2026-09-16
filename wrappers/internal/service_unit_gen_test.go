@@ -164,6 +164,32 @@ apps:
 	c.Check(string(generatedWrapper), Equals, expectedAppService)
 }
 
+func (s *serviceUnitGenSuite) TestGenerateRunSystemCandidateService(c *C) {
+	yamlText := `
+name: snap
+version: 1.0
+apps:
+    app:
+        command: bin/start
+        stop-command: bin/stop
+        daemon: simple
+`
+	info, err := snap.InfoFromSnapYaml([]byte(yamlText))
+	c.Assert(err, IsNil)
+	info.Revision = snap.R(44)
+
+	generatedWrapper, err := internal.GenerateSnapServiceUnitFile(info.Apps["app"], &internal.SnapServicesUnitOptions{
+		SnapRevision:             snap.R(44),
+		RunSystemLabel:           "poc-b",
+		RunSystemFinalizeService: "snapd-run-system-finalize.service",
+	})
+	c.Assert(err, IsNil)
+	c.Check(string(generatedWrapper), testutil.Contains, " snapd-run-system-finalize.service\n")
+	c.Check(string(generatedWrapper), testutil.Contains, "snapd.apparmor.service snapd-run-system-finalize.service")
+	c.Check(string(generatedWrapper), testutil.Contains, "ExecStart=/usr/bin/snap run --run-system=poc-b --revision=44 snap.app")
+	c.Check(string(generatedWrapper), testutil.Contains, "ExecStop=/usr/bin/snap run --run-system=poc-b --revision=44 --command=stop snap.app")
+}
+
 func (s *serviceUnitGenSuite) TestGenerateSnapServiceOnCore(c *C) {
 	defer dirs.SetRootDir("/")
 

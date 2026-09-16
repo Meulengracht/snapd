@@ -39,6 +39,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/jessevdk/go-flags"
 
+	"github.com/snapcore/snapd/boot"
 	"github.com/snapcore/snapd/client"
 	"github.com/snapcore/snapd/cmd/snaplock/runinhibit"
 	"github.com/snapcore/snapd/desktop/portal"
@@ -79,7 +80,8 @@ type cmdRun struct {
 	mustWaitMixin
 	Command     string `long:"command" hidden:"yes"`
 	HookName    string `long:"hook" hidden:"yes"`
-	Revision    string `short:"r" default:"unset" hidden:"yes"`
+	Revision    string `short:"r" long:"revision" default:"unset" hidden:"yes"`
+	RunSystem   string `long:"run-system" hidden:"yes"`
 	Shell       bool   `long:"shell" `
 	DebugLog    bool   `long:"debug-log"`
 	Positionals struct {
@@ -122,7 +124,7 @@ and environment.
 			// TRANSLATORS: This should not start with a lowercase letter.
 			"hook": i18n.G("Hook to run"),
 			// TRANSLATORS: This should not start with a lowercase letter.
-			"r": i18n.G("Use a specific snap revision when running hook"),
+			"revision": i18n.G("Use a specific snap revision when running hook"),
 			// TRANSLATORS: This should not start with a lowercase letter.
 			"shell": i18n.G("Run a shell instead of the command (useful for debugging)"),
 			// TRANSLATORS: This should not start with a lowercase letter.
@@ -139,6 +141,7 @@ and environment.
 			// TRANSLATORS: This should not start with a lowercase letter.
 			"debug-log":  i18n.G("Enable debug logging during early snap startup phases"),
 			"parser-ran": "",
+			"run-system": "",
 		}, nil)
 }
 
@@ -316,7 +319,13 @@ func (x *cmdRun) Execute(args []string) error {
 		return fmt.Errorf("you can only use one of --hook, --command, and --timer")
 	}
 
-	if x.Revision != "unset" && x.Revision != "" && x.HookName == "" {
+	if x.RunSystem != "" && (x.Revision == "unset" || x.Revision == "") {
+		return errors.New(i18n.G("--run-system requires --revision"))
+	}
+	if x.RunSystem != "" && x.HookName != "" {
+		return errors.New(i18n.G("--run-system cannot be used with --hook"))
+	}
+	if x.Revision != "unset" && x.Revision != "" && x.HookName == "" && x.RunSystem == "" {
 		return errors.New(i18n.G("-r can only be used with --hook"))
 	}
 	if x.HookName != "" && len(args) > 0 {
@@ -625,6 +634,28 @@ func (x *cmdRun) snapRunApp(snapApp string, args []string) error {
 		logger.Debugf("enabled debug logging of early snap startup")
 	}
 	snapName, appName := snap.SplitSnapApp(snapApp)
+	if x.RunSystem != "" {
+		booted, err := boot.BootedRunSystem()
+		if err != nil {
+			return fmt.Errorf("cannot identify booted run system: %v", err)
+		}
+		if booted != x.RunSystem {
+			return fmt.Errorf("cannot run snap revision for run system %q while booted into %q", x.RunSystem, booted)
+		}
+		revision, err := snap.ParseRevision(x.Revision)
+		if err != nil {
+			return err
+		}
+		info, err := getSnapInfo(snapName, revision)
+		if err != nil {
+			return err
+		}
+		app := info.Apps[appName]
+		if app == nil {
+			return fmt.Errorf(i18n.G("cannot find app %q in %q"), appName, snapName)
+		}
+		return x.runSnapConfine(info, newAppRunnable(info, app), nil, args)
+	}
 
 	var retryCnt int
 	for {

@@ -80,3 +80,46 @@ func (s *runSystemSuite) TestTryRejectsDifferentPendingSystem(c *C) {
 	err := boot.SetTryRunSystem("poc-c")
 	c.Assert(err, ErrorMatches, `cannot try run system "poc-c" while "poc-b" is pending`)
 }
+
+func (s *runSystemSuite) TestCurrentRunSystemContextLegacyBoot(c *C) {
+	ctx, err := boot.CurrentRunSystemContext()
+	c.Assert(err, IsNil)
+	c.Check(ctx, IsNil)
+}
+
+func (s *runSystemSuite) TestCurrentRunSystemContextAcceptedBoot(c *C) {
+	c.Assert(s.bl.SetBootVars(map[string]string{"run_system": "poc-a"}), IsNil)
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.MkdirAll(filepath.Dir(marker), 0755), IsNil)
+	c.Assert(os.WriteFile(marker, []byte("poc-a\n"), 0644), IsNil)
+
+	ctx, err := boot.CurrentRunSystemContext()
+	c.Assert(err, IsNil)
+	c.Check(ctx, DeepEquals, &boot.RunSystemContext{Booted: "poc-a", Accepted: "poc-a"})
+}
+
+func (s *runSystemSuite) TestCurrentRunSystemContextRejectsTryingBoot(c *C) {
+	c.Assert(s.bl.SetBootVars(map[string]string{
+		"run_system":     "poc-a",
+		"try_run_system": "poc-b",
+	}), IsNil)
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.MkdirAll(filepath.Dir(marker), 0755), IsNil)
+	c.Assert(os.WriteFile(marker, []byte("poc-b\n"), 0644), IsNil)
+
+	_, err := boot.CurrentRunSystemContext()
+	c.Assert(err, ErrorMatches, `booted run system "poc-b" does not match accepted run system "poc-a"`)
+}
+
+func (s *runSystemSuite) TestCurrentRunSystemContextRejectsPendingCandidate(c *C) {
+	c.Assert(s.bl.SetBootVars(map[string]string{
+		"run_system":     "poc-a",
+		"try_run_system": "poc-b",
+	}), IsNil)
+	marker := filepath.Join(dirs.SnapRunDir, boot.BootedRunSystemMarker)
+	c.Assert(os.MkdirAll(filepath.Dir(marker), 0755), IsNil)
+	c.Assert(os.WriteFile(marker, []byte("poc-a\n"), 0644), IsNil)
+
+	_, err := boot.CurrentRunSystemContext()
+	c.Assert(err, ErrorMatches, `cannot plan run-system refresh while "poc-b" is pending`)
+}

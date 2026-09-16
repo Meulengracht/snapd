@@ -30,9 +30,19 @@ import (
 
 // SeedRefreshTasks carries the tasks needed to perform a seed refresh.
 type SeedRefreshTasks struct {
-	Create   *state.Task
-	Finalize *state.Task
-	Remove   []*state.Task
+	Create    *state.Task
+	Verify    *state.Task
+	Finalize  *state.Task
+	Remove    []*state.Task
+	RunSystem *RunSystemSeedRefresh
+}
+
+// RunSystemSeedRefresh identifies a seed refresh prepared as an A/B run-system
+// candidate instead of a recovery-system-only refresh.
+type RunSystemSeedRefresh struct {
+	AcceptedLabel  string   `json:"accepted-label"`
+	CandidateLabel string   `json:"candidate-label"`
+	SnapNames      []string `json:"snap-names"`
 }
 
 // SeedRefreshEvictionPolicy carries the seed-refresh system pruning policy
