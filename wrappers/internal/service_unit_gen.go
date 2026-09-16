@@ -50,6 +50,26 @@ type SnapServicesUnitOptions struct {
 	// CoreMountedSnapdSnapDep is whether the generated unit should depend on
 	// the provided snapd snapd being mounted
 	CoreMountedSnapdSnapDep string
+
+	// SnapRevision pins launcher commands to a specific revision. It is used
+	// for an inactive run-system candidate whose revision is not current yet.
+	SnapRevision   snap.Revision
+	RunSystemLabel string
+
+	// RunSystemFinalizeService gates the service on candidate finalization.
+	RunSystemFinalizeService string
+}
+
+func launcherCommandForRevision(app *snap.AppInfo, runSystemLabel string, revision snap.Revision, command string) string {
+	args := []string{"/usr/bin/snap", "run", "--run-system=" + runSystemLabel, "--revision=" + revision.String()}
+	if command != "" {
+		args = append(args, "--command="+command)
+	}
+	target := app.Snap.InstanceName()
+	if app.Name != app.Snap.SnapName() {
+		target += "." + app.Name
+	}
+	return strings.Join(append(args, target), " ")
 }
 
 func serviceStopTimeout(app *snap.AppInfo) time.Duration {
@@ -161,7 +181,7 @@ EnvironmentFile=-/etc/environment
 {{- if .LogNamespace}}
 Environment=SNAPD_LOG_NAMESPACE={{.LogNamespace}}
 {{- end}}
-ExecStart={{.App.LauncherCommand}}
+ExecStart={{.LauncherCommand}}
 SyslogIdentifier={{.App.Snap.InstanceName}}.{{.App.Name}}
 Restart={{.Restart}}
 {{- if .App.RestartDelay}}
@@ -172,13 +192,13 @@ SuccessExitStatus={{ stringsJoin .SuccessExitStatus " " }}
 {{- end}}
 WorkingDirectory={{.WorkingDir}}
 {{- if .App.StopCommand}}
-ExecStop={{.App.LauncherStopCommand}}
+ExecStop={{.LauncherStopCommand}}
 {{- end}}
 {{- if .App.ReloadCommand}}
-ExecReload={{.App.LauncherReloadCommand}}
+ExecReload={{.LauncherReloadCommand}}
 {{- end}}
 {{- if .App.PostStopCommand}}
-ExecStopPost={{.App.LauncherPostStopCommand}}
+ExecStopPost={{.LauncherPostStopCommand}}
 {{- end}}
 {{- if .StopTimeout}}
 TimeoutStopSec={{.StopTimeout}}
@@ -289,6 +309,10 @@ WantedBy={{.ServicesTarget}}
 		InterfaceUnitSnippets    string
 		SliceUnit                string
 		LogNamespace             string
+		LauncherCommand          string
+		LauncherStopCommand      string
+		LauncherReloadCommand    string
+		LauncherPostStopCommand  string
 
 		Home    string
 		EnvVars string
@@ -300,6 +324,10 @@ WantedBy={{.ServicesTarget}}
 		InterfaceServiceSnippets: ifaceSpecifiedServiceSnippet,
 		InterfaceUnitSnippets:    ifaceSpecifiedUnitSnippet,
 		Restart:                  restartCond,
+		LauncherCommand:          appInfo.LauncherCommand(),
+		LauncherStopCommand:      appInfo.LauncherStopCommand(),
+		LauncherReloadCommand:    appInfo.LauncherReloadCommand(),
+		LauncherPostStopCommand:  appInfo.LauncherPostStopCommand(),
 
 		// When converting a Duration to a string, Golang produces units "ns",
 		// "µs", "ms", "s", "m", and "h". These are understood by systemd (see
@@ -324,6 +352,12 @@ WantedBy={{.ServicesTarget}}
 
 		// systemd runs as PID 1 so %h will not work.
 		Home: "/root",
+	}
+	if !opts.SnapRevision.Unset() {
+		wrapperData.LauncherCommand = launcherCommandForRevision(appInfo, opts.RunSystemLabel, opts.SnapRevision, "")
+		wrapperData.LauncherStopCommand = launcherCommandForRevision(appInfo, opts.RunSystemLabel, opts.SnapRevision, "stop")
+		wrapperData.LauncherReloadCommand = launcherCommandForRevision(appInfo, opts.RunSystemLabel, opts.SnapRevision, "reload")
+		wrapperData.LauncherPostStopCommand = launcherCommandForRevision(appInfo, opts.RunSystemLabel, opts.SnapRevision, "post-stop")
 	}
 	switch appInfo.DaemonScope {
 	case snap.SystemDaemon:
@@ -361,6 +395,10 @@ WantedBy={{.ServicesTarget}}
 	}
 	if opts.CoreMountedSnapdSnapDep != "" {
 		wrapperData.CoreMountedSnapdSnapDep = []string{opts.CoreMountedSnapdSnapDep}
+	}
+	if opts.RunSystemFinalizeService != "" {
+		wrapperData.Requires = append(wrapperData.Requires, opts.RunSystemFinalizeService)
+		wrapperData.After = append(wrapperData.After, opts.RunSystemFinalizeService)
 	}
 
 	if err := t.Execute(&templateOut, wrapperData); err != nil {
